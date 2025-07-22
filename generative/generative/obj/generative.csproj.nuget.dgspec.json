@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "/home/mplopes/Documentos/generative/generative/generative.csproj": {}
+    "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/generative.csproj": {}
   },
   "projects": {
-    "/home/mplopes/Documentos/generative/generative/generative.csproj": {
+    "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/generative.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "/home/mplopes/Documentos/generative/generative/generative.csproj",
+        "projectUniqueName": "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/generative.csproj",
         "projectName": "generative",
-        "projectPath": "/home/mplopes/Documentos/generative/generative/generative.csproj",
+        "projectPath": "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/generative.csproj",
         "packagesPath": "/home/mplopes/.nuget/packages/",
-        "outputPath": "/home/mplopes/Documentos/generative/generative/obj/",
+        "outputPath": "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/obj/",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "/home/mplopes/.nuget/NuGet/NuGet.Config"
