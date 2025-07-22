@@ -1,0 +1,100 @@
+1. Olá, bem-vindo ao sistema de treinamento de modelos!
+2. Bom dia, como posso ajudar você hoje?
+3. Boa tarde, tudo bem com você?
+4. Boa noite, pronto para treinar o modelo?
+5. Este dataset contém saudações e conversas simples.
+6. O objetivo é treinar uma rede neural com texto.
+7. Cada linha deve ter pelo menos 11 caracteres.
+8. Olá, você já usou o Vale Presente antes?
+9. Bom dia, qual é o prazo de entrega do produto?
+10. O prazo de entrega é de 5 a 7 dias úteis.
+11. Tudo bem? Estou aqui para ajudar com dúvidas.
+12. Para mais informações, contate o suporte.
+13. O modelo processa uma linha por vez.
+14. Boa tarde, como funciona o Vale Presente?
+15. Use o Vale Presente em 3 passos: comprar, ativar, usar.
+16. Oi, você quer treinar o modelo agora?
+17. O vocabulário inclui letras, números e pontuação.
+18. Evite caracteres especiais para menos erros.
+19. O treinamento será feito em 10 épocas.
+20. Olá, posso ajudar com o treinamento?
+21. A loja aceita cartão de crédito e boleto.
+22. Bom dia, como está o progresso do treinamento?
+23. Verifique o saldo do Vale Presente antes de usar.
+24. Entrega grátis para compras acima de 100 reais.
+25. Tudo bem? O sistema suporta UTF-8.
+26. Configure seu perfil antes do treinamento.
+27. Boa noite, quer testar uma conversa agora?
+28. Oi, qual é a taxa de aprendizado usada?
+29. A taxa de aprendizado padrão é 0.01.
+30. O modelo gera sequências com base no texto.
+31. Olá, como posso usar o Vale Presente online?
+32. A perda média é calculada por época.
+33. Use aspas retas para evitar erros de codificação.
+34. Bom dia, você tem dúvidas sobre o modelo?
+35. O hífen normal é usado em vez de hífen longo.
+36. Este é um exemplo de frase com 30 caracteres.
+37. O suporte está disponível de segunda a sexta.
+38. Boa tarde, o Vale Presente é válido por 1 ano?
+39. Sim, o Vale Presente tem validade de 12 meses.
+40. O modelo tem 256 unidades na camada oculta.
+41. Oi, quantos chunks serão processados hoje?
+42. Cada chunk contribui para a perda total.
+43. Olá, onde posso usar o Vale Presente?
+44. O Vale Presente é aceito em lojas parceiras.
+45. Bom dia, o treinamento já começou?
+46. O arquivo de vocabulário é salvo por época.
+47. Tudo bem? O modelo foi inicializado?
+48. O modelo usa o tamanho do vocabulário.
+49. Teste o sistema com um dataset pequeno.
+50. Boa noite, como está o desempenho do modelo?
+51. A codificação UTF-8 evita erros no treinamento.
+52. Oi, posso ajudar com a configuração do sistema?
+53. O treinamento pode levar alguns minutos.
+54. Olá, qual é o saldo do meu Vale Presente?
+55. O Vale Presente é ativado na compra online.
+56. Bom dia, você já treinou modelos antes?
+57. Sim, já treinei vários modelos de linguagem.
+58. O modelo processa até 1000 caracteres por linha.
+59. Boa tarde, o sistema está funcionando bem?
+60. Sim, o sistema está pronto para treinar.
+61. A memória é liberada após cada chunk.
+62. Oi, qual é o formato do arquivo de entrada?
+63. O arquivo de entrada deve estar em UTF-8.
+64. Tudo bem? Quer ajustar a taxa de aprendizado?
+65. O Vale Presente é válido para produtos selecionados.
+66. Olá, como posso ativar meu Vale Presente?
+67. Ative o Vale Presente com o código único.
+68. Bom dia, o modelo suporta conversas?
+69. Sim, o modelo pode gerar respostas básicas.
+70. O sistema ignora linhas vazias no treinamento.
+71. Boa noite, qual é o tamanho do vocabulário?
+72. O vocabulário inclui o espaço como caractere.
+73. Oi, posso usar o Vale Presente em lojas físicas?
+74. Sim, o Vale Presente é válido em lojas físicas.
+75. O sistema registra novos caracteres no vocabulário.
+76. Olá, o treinamento está concluído?
+77. O treinamento gera logs detalhados por época.
+78. Bom dia, como posso melhorar o modelo?
+79. Ajuste o sequenceLength para melhores resultados.
+80. Tudo bem? O sistema suporta 1000 linhas?
+81. Sim, o sistema processa até 1000 linhas.
+82. Boa tarde, o Vale Presente tem limite de uso?
+83. Não, o Vale Presente pode ser usado até o saldo zerar.
+84. Oi, qual é o prazo para ativação do Vale Presente?
+85. O Vale Presente é ativado em poucos minutos.
+86. O modelo aprende a prever o próximo caractere.
+87. Olá, posso pausar o treinamento?
+88. Sim, o treinamento pode ser pausado e retomado.
+89. Bom dia, o sistema usa memória eficiente?
+90. Sim, usamos GC.Collect() para liberar memória.
+91. O vocabulário inclui números de 0 a 9.
+92. Boa noite, o modelo foi salvo corretamente?
+93. O modelo é salvo em model_epoch_X.json.
+94. Oi, como posso verificar o progresso do treinamento?
+95. Veja os logs para o progresso de cada chunk.
+96. Tudo bem? O Vale Presente é fácil de usar?
+97. Sim, o Vale Presente é prático e rápido.
+98. O treinamento é concluído após 10 épocas.
+99. Olá, pronto para testar o modelo treinado?
+100. Bom dia, obrigado por usar o sistema!
