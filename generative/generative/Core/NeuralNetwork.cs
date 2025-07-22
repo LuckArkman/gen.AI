@@ -6,120 +6,256 @@ namespace Core;
 
 public class NeuralNetwork
 {
-    private Tensor weightsHidden;
-    private Tensor biasHidden;
-    private Tensor weightsOutput;
-    private Tensor biasOutput;
-    private readonly int inputSize;
-    private readonly int intHiddenSize; // Renomeado para evitar conflito com propriedade
-    private readonly int outputSize;
+    private Tensor W_i; // Pesos da porta de entrada (input gate)
+    private Tensor U_i; // Pesos recorrentes da porta de entrada
+    private Tensor b_i; // Bias da porta de entrada
+    private Tensor W_f; // Pesos da porta de esquecimento (forget gate)
+    private Tensor U_f; // Pesos recorrentes da porta de esquecimento
+    private Tensor b_f; // Bias da porta de esquecimento
+    private Tensor W_c; // Pesos da porta da célula (cell gate)
+    private Tensor U_c; // Pesos recorrentes da porta da célula
+    private Tensor b_c; // Bias da porta da célula
+    private Tensor W_o; // Pesos da porta de saída (output gate)
+    private Tensor U_o; // Pesos recorrentes da porta de saída
+    private Tensor b_o; // Bias da porta de saída
+    private Tensor W_out; // Pesos da camada de saída
+    private Tensor b_out; // Bias da camada de saída
+    private readonly int inputSize; // vocabSize * contextWindowSize
+    private readonly int hiddenSize;
+    private readonly int outputSize; // vocabSize
+    private readonly int contextWindowSize; // Tamanho da janela de contexto
 
     public int InputSize => inputSize;
-    public int HiddenSize => intHiddenSize; // Usa o novo nome aqui
+    public int HiddenSize => hiddenSize;
     public int OutputSize => outputSize;
 
-    public NeuralNetwork(int inputSize, int hiddenSize, int outputSize)
+    public NeuralNetwork(int inputSize, int hiddenSize, int outputSize, int contextWindowSize)
     {
         this.inputSize = inputSize;
-        this.intHiddenSize = hiddenSize; // Atribuído ao novo nome
+        this.hiddenSize = hiddenSize;
         this.outputSize = outputSize;
+        this.contextWindowSize = contextWindowSize;
 
         Random rand = new Random();
-        double sqrtFanInHidden = Math.Sqrt(2.0 / inputSize); // He initialization for ReLU
-        double sqrtFanInOutput = Math.Sqrt(2.0 / hiddenSize); // He initialization for ReLU (or Xavier for linear/softmax)
+        double sqrtFanIn = Math.Sqrt(2.0 / (inputSize + hiddenSize)); // Inicialização He ajustada
 
-        double[] weightsHiddenData = new double[inputSize * intHiddenSize];
-        double[] biasHiddenData = new double[intHiddenSize];
-        double[] weightsOutputData = new double[intHiddenSize * outputSize];
-        double[] biasOutputData = new double[outputSize];
-
-        for (int i = 0; i < weightsHiddenData.Length; i++)
-            weightsHiddenData[i] = (rand.NextDouble() * 2 - 1) * sqrtFanInHidden; // Scaled initialization
-        for (int i = 0; i < biasHiddenData.Length; i++)
-            biasHiddenData[i] = 0; // Common to initialize biases to zero or small positive
-        for (int i = 0; i < weightsOutputData.Length; i++)
-            weightsOutputData[i] = (rand.NextDouble() * 2 - 1) * sqrtFanInOutput; // Scaled initialization
-        for (int i = 0; i < biasOutputData.Length; i++)
-            biasOutputData[i] = 0; // Common to initialize biases to zero or small positive
-
-        weightsHidden = new Tensor(weightsHiddenData, new int[] { inputSize, intHiddenSize });
-        biasHidden = new Tensor(biasHiddenData, new int[] { intHiddenSize });
-        weightsOutput = new Tensor(weightsOutputData, new int[] { intHiddenSize, outputSize });
-        biasOutput = new Tensor(biasOutputData, new int[] { outputSize });
+        // Inicialização dos pesos e biases para as portas da LSTM
+        W_i = new Tensor(InitializeWeights(inputSize, hiddenSize, sqrtFanIn, rand), new int[] { inputSize, hiddenSize });
+        U_i = new Tensor(InitializeWeights(hiddenSize, hiddenSize, sqrtFanIn, rand), new int[] { hiddenSize, hiddenSize });
+        b_i = new Tensor(new double[hiddenSize], new int[] { hiddenSize });
+        W_f = new Tensor(InitializeWeights(inputSize, hiddenSize, sqrtFanIn, rand), new int[] { inputSize, hiddenSize });
+        U_f = new Tensor(InitializeWeights(hiddenSize, hiddenSize, sqrtFanIn, rand), new int[] { hiddenSize, hiddenSize });
+        b_f = new Tensor(new double[hiddenSize], new int[] { hiddenSize });
+        W_c = new Tensor(InitializeWeights(inputSize, hiddenSize, sqrtFanIn, rand), new int[] { inputSize, hiddenSize });
+        U_c = new Tensor(InitializeWeights(hiddenSize, hiddenSize, sqrtFanIn, rand), new int[] { hiddenSize, hiddenSize });
+        b_c = new Tensor(new double[hiddenSize], new int[] { hiddenSize });
+        W_o = new Tensor(InitializeWeights(inputSize, hiddenSize, sqrtFanIn, rand), new int[] { inputSize, hiddenSize });
+        U_o = new Tensor(InitializeWeights(hiddenSize, hiddenSize, sqrtFanIn, rand), new int[] { hiddenSize, hiddenSize });
+        b_o = new Tensor(new double[hiddenSize], new int[] { hiddenSize });
+        W_out = new Tensor(InitializeWeights(hiddenSize, outputSize, Math.Sqrt(2.0 / hiddenSize), rand), new int[] { hiddenSize, outputSize });
+        b_out = new Tensor(new double[outputSize], new int[] { outputSize });
     }
 
-    private NeuralNetwork(int inputSize, int hiddenSize, int outputSize,
-        Tensor weightsHidden, Tensor biasHidden,
-        Tensor weightsOutput, Tensor biasOutput)
+    private NeuralNetwork(int inputSize, int hiddenSize, int outputSize, int contextWindowSize,
+        Tensor W_i, Tensor U_i, Tensor b_i,
+        Tensor W_f, Tensor U_f, Tensor b_f,
+        Tensor W_c, Tensor U_c, Tensor b_c,
+        Tensor W_o, Tensor U_o, Tensor b_o,
+        Tensor W_out, Tensor b_out)
     {
         this.inputSize = inputSize;
-        this.intHiddenSize = hiddenSize;
+        this.hiddenSize = hiddenSize;
         this.outputSize = outputSize;
-        this.weightsHidden = weightsHidden;
-        this.biasHidden = biasHidden;
-        this.weightsOutput = weightsOutput;
-        this.biasOutput = biasOutput;
+        this.contextWindowSize = contextWindowSize;
+        this.W_i = W_i;
+        this.U_i = U_i;
+        this.b_i = b_i;
+        this.W_f = W_f;
+        this.U_f = U_f;
+        this.b_f = b_f;
+        this.W_c = W_c;
+        this.U_c = U_c;
+        this.b_c = b_c;
+        this.W_o = W_o;
+        this.U_o = U_o;
+        this.b_o = b_o;
+        this.W_out = W_out;
+        this.b_out = b_out;
     }
+
+    private static double[] InitializeWeights(int rows, int cols, double scale, Random rand)
+    {
+        double[] weights = new double[rows * cols];
+        for (int i = 0; i < weights.Length; i++)
+        {
+            weights[i] = (rand.NextDouble() * 2 - 1) * scale;
+        }
+        return weights;
+    }
+
+    private double Sigmoid(double x) => 1.0 / (1.0 + Math.Exp(-x));
+    private double Tanh(double x) => Math.Tanh(x);
+    private double SigmoidDerivative(double sigmoidOutput) => sigmoidOutput * (1 - sigmoidOutput);
+    private double TanhDerivative(double tanhOutput) => 1 - tanhOutput * tanhOutput;
 
     public Tensor ForwardLogits(Tensor input)
     {
         if (input.shape.Length != 1 || input.shape[0] != inputSize)
         {
-            throw new ArgumentException(
-                $"O tensor de entrada deve ser unidimensional com tamanho igual a inputSize ({inputSize}). Mas recebeu {input.shape[0]}.");
+            throw new ArgumentException($"O tensor de entrada deve ser unidimensional com tamanho {inputSize}. Recebido: {input.shape[0]}.");
         }
 
-        // Camada Oculta (ReLU)
-        double[] hiddenData = new double[intHiddenSize];
-        for (int h = 0; h < intHiddenSize; h++)
+        // Divide a entrada em contextWindowSize vetores de tamanho vocabSize
+        int vocabSize = inputSize / contextWindowSize;
+        double[] inputData = input.GetData();
+        Tensor[] inputSteps = new Tensor[contextWindowSize];
+        for (int t = 0; t < contextWindowSize; t++)
         {
-            double sum = 0;
-            for (int i = 0; i < inputSize; i++)
-            {
-                sum += input.Infer(new int[] { i }) * weightsHidden.Infer(new int[] { i, h });
-            }
-
-            sum += biasHidden.Infer(new int[] { h });
-            hiddenData[h] = Math.Max(0, sum); // ReLU
+            double[] stepData = new double[vocabSize];
+            Array.Copy(inputData, t * vocabSize, stepData, 0, vocabSize);
+            inputSteps[t] = new Tensor(stepData, new int[] { vocabSize });
         }
 
-        Tensor hidden = new Tensor(hiddenData, new int[] { intHiddenSize });
+        // Inicializa estados da LSTM
+        Tensor h_t = new Tensor(new double[hiddenSize], new int[] { hiddenSize });
+        Tensor c_t = new Tensor(new double[hiddenSize], new int[] { hiddenSize });
 
-        // Camada de Saída (Linear para logits)
-        double[] outputLogitsData = new double[outputSize];
+        // Processa cada passo de tempo
+        for (int t = 0; t < contextWindowSize; t++)
+        {
+            (h_t, c_t) = LSTMStep(inputSteps[t], h_t, c_t);
+        }
+
+        // Camada de saída
+        double[] outputData = new double[outputSize];
+        double[] h_t_data = h_t.GetData(); // Cache para desempenho
         for (int o = 0; o < outputSize; o++)
         {
             double sum = 0;
-            for (int h = 0; h < intHiddenSize; h++)
+            for (int h = 0; h < hiddenSize; h++)
             {
-                sum += hidden.Infer(new int[] { h }) * weightsOutput.Infer(new int[] { h, o });
+                sum += h_t_data[h] * W_out.Infer(new int[] { h, o });
             }
-            sum += biasOutput.Infer(new int[] { o });
-            outputLogitsData[o] = sum;
+            sum += b_out.Infer(new int[] { o });
+            outputData[o] = sum; // Logits
         }
 
-        return new Tensor(outputLogitsData, new int[] { outputSize });
+        return new Tensor(outputData, new int[] { outputSize });
     }
 
+    private (Tensor h_t, Tensor c_t) LSTMStep(Tensor x_t, Tensor h_prev, Tensor c_prev)
+    {
+        double[] x_t_data = x_t.GetData();
+        double[] h_prev_data = h_prev.GetData();
+
+        // Porta de entrada
+        double[] i_t_data = new double[hiddenSize];
+        for (int h = 0; h < hiddenSize; h++)
+        {
+            double sum = 0;
+            for (int i = 0; i < x_t.shape[0]; i++)
+            {
+                sum += x_t_data[i] * W_i.Infer(new int[] { i, h });
+            }
+            for (int h_prev_idx = 0; h_prev_idx < hiddenSize; h_prev_idx++)
+            {
+                sum += h_prev_data[h_prev_idx] * U_i.Infer(new int[] { h_prev_idx, h });
+            }
+            sum += b_i.Infer(new int[] { h });
+            i_t_data[h] = Sigmoid(sum);
+        }
+        Tensor i_t = new Tensor(i_t_data, new int[] { hiddenSize });
+
+        // Porta de esquecimento
+        double[] f_t_data = new double[hiddenSize];
+        for (int h = 0; h < hiddenSize; h++)
+        {
+            double sum = 0;
+            for (int i = 0; i < x_t.shape[0]; i++)
+            {
+                sum += x_t_data[i] * W_f.Infer(new int[] { i, h });
+            }
+            for (int h_prev_idx = 0; h_prev_idx < hiddenSize; h_prev_idx++)
+            {
+                sum += h_prev_data[h_prev_idx] * U_f.Infer(new int[] { h_prev_idx, h });
+            }
+            sum += b_f.Infer(new int[] { h });
+            f_t_data[h] = Sigmoid(sum);
+        }
+        Tensor f_t = new Tensor(f_t_data, new int[] { hiddenSize });
+
+        // Porta da célula (candidato)
+        double[] c_tilde_data = new double[hiddenSize];
+        for (int h = 0; h < hiddenSize; h++)
+        {
+            double sum = 0;
+            for (int i = 0; i < x_t.shape[0]; i++)
+            {
+                sum += x_t_data[i] * W_c.Infer(new int[] { i, h });
+            }
+            for (int h_prev_idx = 0; h_prev_idx < hiddenSize; h_prev_idx++)
+            {
+                sum += h_prev_data[h_prev_idx] * U_c.Infer(new int[] { h_prev_idx, h });
+            }
+            sum += b_c.Infer(new int[] { h });
+            c_tilde_data[h] = Tanh(sum);
+        }
+        Tensor c_tilde = new Tensor(c_tilde_data, new int[] { hiddenSize });
+
+        // Estado da célula
+        double[] c_t_data = new double[hiddenSize];
+        double[] c_prev_data = c_prev.GetData();
+        for (int h = 0; h < hiddenSize; h++)
+        {
+            c_t_data[h] = f_t_data[h] * c_prev_data[h] + i_t_data[h] * c_tilde_data[h];
+        }
+        Tensor c_t = new Tensor(c_t_data, new int[] { hiddenSize });
+
+        // Porta de saída
+        double[] o_t_data = new double[hiddenSize];
+        for (int h = 0; h < hiddenSize; h++)
+        {
+            double sum = 0;
+            for (int i = 0; i < x_t.shape[0]; i++)
+            {
+                sum += x_t_data[i] * W_o.Infer(new int[] { i, h });
+            }
+            for (int h_prev_idx = 0; h_prev_idx < hiddenSize; h_prev_idx++)
+            {
+                sum += h_prev_data[h_prev_idx] * U_o.Infer(new int[] { h_prev_idx, h });
+            }
+            sum += b_o.Infer(new int[] { h });
+            o_t_data[h] = Sigmoid(sum);
+        }
+        Tensor o_t = new Tensor(o_t_data, new int[] { hiddenSize });
+
+        // Estado oculto
+        double[] h_t_data = new double[hiddenSize];
+        for (int h = 0; h < hiddenSize; h++)
+        {
+            h_t_data[h] = o_t_data[h] * Tanh(c_t_data[h]);
+        }
+        Tensor h_t = new Tensor(h_t_data, new int[] { hiddenSize });
+
+        return (h_t, c_t);
+    }
 
     public Tensor Forward(Tensor input)
     {
-        Tensor logits = ForwardLogits(input); // Obtém os logits primeiro
+        Tensor logits = ForwardLogits(input);
         double[] outputData = logits.GetData();
 
         double sumExp = 0;
         for (int o = 0; o < outputSize; o++)
         {
-            outputData[o] = Math.Exp(outputData[o]); // Aplica exponencial para Softmax
+            outputData[o] = Math.Exp(outputData[o]);
             sumExp += outputData[o];
         }
 
-        // Evita divisão por zero se sumExp for muito pequeno
-        if (sumExp == 0) sumExp = 1e-9; 
-
+        if (sumExp == 0) sumExp = 1e-9;
         for (int o = 0; o < outputSize; o++)
         {
-            outputData[o] /= sumExp; // Normaliza para Softmax
+            outputData[o] /= sumExp; // Softmax
         }
 
         return new Tensor(outputData, new int[] { outputSize });
@@ -131,165 +267,189 @@ public class NeuralNetwork
 
         for (int i = 0; i < inputs.Length; i++)
         {
-            // --- 1. Forward Pass (Propagação Direta) ---
-            // Calcular a saída da camada oculta (usando ComputeHidden para reutilização)
-            Tensor hiddenInputBeforeActivation = ComputeHiddenInput(inputs[i]); // A entrada da ReLU
-            Tensor hiddenActivation = ComputeHidden(inputs[i]); // A saída da ReLU
+            int vocabSize = inputSize / contextWindowSize;
+            double[] inputData = inputs[i].GetData();
+            Tensor[] inputSteps = new Tensor[contextWindowSize];
+            for (int t = 0; t < contextWindowSize; t++)
+            {
+                double[] stepData = new double[vocabSize];
+                Array.Copy(inputData, t * vocabSize, stepData, 0, vocabSize);
+                inputSteps[t] = new Tensor(stepData, new int[] { vocabSize });
+            }
 
-            // Calcular a saída da rede (probabilidades Softmax)
-            Tensor output = Forward(inputs[i]); 
+            // Forward pass
+            Tensor h_t = new Tensor(new double[hiddenSize], new int[] { hiddenSize });
+            Tensor c_t = new Tensor(new double[hiddenSize], new int[] { hiddenSize });
+            Tensor[] i_ts = new Tensor[contextWindowSize];
+            Tensor[] f_ts = new Tensor[contextWindowSize];
+            Tensor[] c_tildes = new Tensor[contextWindowSize];
+            Tensor[] c_ts = new Tensor[contextWindowSize];
+            Tensor[] o_ts = new Tensor[contextWindowSize];
+            Tensor[] h_ts = new Tensor[contextWindowSize];
+            Tensor[] c_prevs = new Tensor[contextWindowSize];
 
-            // --- 2. Calcular a Perda para esta amostra ---
+            for (int t = 0; t < contextWindowSize; t++)
+            {
+                Tensor h_prev = t == 0 ? new Tensor(new double[hiddenSize], new int[] { hiddenSize }) : h_ts[t - 1];
+                (h_t, c_t) = LSTMStep(inputSteps[t], h_prev, c_t);
+                i_ts[t] = new Tensor(i_t_data ?? new double[hiddenSize], new int[] { hiddenSize });
+                f_ts[t] = new Tensor(f_t_data ?? new double[hiddenSize], new int[] { hiddenSize });
+                c_tildes[t] = new Tensor(c_tilde_data ?? new double[hiddenSize], new int[] { hiddenSize });
+                c_ts[t] = new Tensor(c_t.GetData(), new int[] { hiddenSize });
+                o_ts[t] = new Tensor(o_t_data ?? new double[hiddenSize], new int[] { hiddenSize });
+                h_ts[t] = new Tensor(h_t.GetData(), new int[] { hiddenSize });
+                c_prevs[t] = new Tensor(c_t.GetData(), new int[] { hiddenSize });
+            }
+
+            // Camada de saída
+            Tensor output = Forward(inputs[i]);
             for (int o = 0; o < outputSize; o++)
             {
                 if (targets[i].Infer(new int[] { o }) == 1.0)
                 {
                     double outputValue = output.Infer(new int[] { o });
-                    if (outputValue <= 0)
-                    {
-                        epochLoss += -Math.Log(1e-9); 
-                    }
-                    else
-                    {
-                        epochLoss += -Math.Log(outputValue + 1e-9); // Perda de Entropia Cruzada
-                    }
+                    epochLoss += -Math.Log(outputValue + 1e-9);
                     break;
                 }
             }
 
-            // --- 3. Backward Pass (Retropropagação) ---
-
-            // a. Gradientes da Camada de Saída
-            // dL/d(output_logits) = output_probabilities - target_one_hot
-            double[] gradOutputLogits = new double[outputSize];
+            // Backward pass (BPTT)
+            double[] grad_output = new double[outputSize];
             for (int o = 0; o < outputSize; o++)
             {
-                gradOutputLogits[o] = output.Infer(new int[] { o }) - targets[i].Infer(new int[] { o });
+                grad_output[o] = output.Infer(new int[] { o }) - targets[i].Infer(new int[] { o });
             }
 
-            // b. Gradientes para os Pesos (weightsOutput) e Bias (biasOutput) da Camada de Saída
-            // dW_output = dL/d(output_logits) * hidden_activation.T
-            double[] gradWeightsOutputData = new double[intHiddenSize * outputSize];
-            double[] gradBiasOutputData = new double[outputSize];
-
+            double[] grad_W_out = new double[hiddenSize * outputSize];
+            double[] grad_b_out = new double[outputSize];
             for (int o = 0; o < outputSize; o++)
             {
-                for (int h = 0; h < intHiddenSize; h++)
+                for (int h = 0; h < hiddenSize; h++)
                 {
-                    int idx = h * outputSize + o;
-                    gradWeightsOutputData[idx] = gradOutputLogits[o] * hiddenActivation.Infer(new int[] { h });
+                    grad_W_out[h * outputSize + o] = grad_output[o] * h_ts[contextWindowSize - 1].Infer(new int[] { h });
                 }
-                gradBiasOutputData[o] = gradOutputLogits[o];
+                grad_b_out[o] = grad_output[o];
             }
 
-            // c. Propagar gradientes para a Camada Oculta (antes da ativação ReLU)
-            // dL/d(hidden_input_before_activation) = dL/d(output_logits) * weightsOutput.T * ReLU_derivative(hidden_input_before_activation)
-            double[] gradHiddenInput = new double[intHiddenSize];
-            for (int h = 0; h < intHiddenSize; h++)
+            double[] grad_h_next = new double[hiddenSize];
+            for (int h = 0; h < hiddenSize; h++)
             {
-                double sumErrorPropagated = 0;
+                double sum = 0;
                 for (int o = 0; o < outputSize; o++)
                 {
-                    sumErrorPropagated += gradOutputLogits[o] * weightsOutput.Infer(new int[] { h, o });
+                    sum += grad_output[o] * W_out.Infer(new int[] { h, o });
                 }
-                // Aplica a derivada da ReLU: 1 se a entrada for > 0, 0 caso contrário.
-                gradHiddenInput[h] = sumErrorPropagated * (hiddenInputBeforeActivation.Infer(new int[] { h }) > 0 ? 1 : 0);
+                grad_h_next[h] = sum;
             }
 
-            // d. Gradientes para os Pesos (weightsHidden) e Bias (biasHidden) da Camada Oculta
-            // dW_hidden = dL/d(hidden_input_before_activation) * input.T
-            double[] gradWeightsHiddenData = new double[inputSize * intHiddenSize];
-            double[] gradBiasHiddenData = new double[intHiddenSize];
+            double[] grad_c_next = new double[hiddenSize];
+            double[][] grad_i_ts = new double[contextWindowSize][];
+            double[][] grad_f_ts = new double[contextWindowSize][];
+            double[][] grad_c_tildes = new double[contextWindowSize][];
+            double[][] grad_o_ts = new double[contextWindowSize][];
 
-            for (int h = 0; h < intHiddenSize; h++)
+            for (int t = contextWindowSize - 1; t >= 0; t--)
             {
-                for (int j = 0; j < inputSize; j++)
+                grad_i_ts[t] = new double[hiddenSize];
+                grad_f_ts[t] = new double[hiddenSize];
+                grad_c_tildes[t] = new double[hiddenSize];
+                grad_o_ts[t] = new double[hiddenSize];
+
+                double[] grad_h_t = new double[hiddenSize];
+                for (int h = 0; h < hiddenSize; h++)
                 {
-                    int idx = j * intHiddenSize + h;
-                    gradWeightsHiddenData[idx] = gradHiddenInput[h] * inputs[i].Infer(new int[] { j });
+                    grad_h_t[h] = t == contextWindowSize - 1 ? grad_h_next[h] : 0;
                 }
-                gradBiasHiddenData[h] = gradHiddenInput[h];
+
+                double[] grad_c_t = new double[hiddenSize];
+                for (int h = 0; h < hiddenSize; h++)
+                {
+                    grad_c_t[h] = grad_h_t[h] * o_ts[t].Infer(new int[] { h }) * TanhDerivative(Tanh(c_ts[t].Infer(new int[] { h }))) +
+                                  (t < contextWindowSize - 1 ? grad_c_next[h] * f_ts[t + 1].Infer(new int[] { h }) : 0);
+                }
+
+                for (int h = 0; h < hiddenSize; h++)
+                {
+                    grad_o_ts[t][h] = grad_h_t[h] * Tanh(c_ts[t].Infer(new int[] { h })) * SigmoidDerivative(o_ts[t].Infer(new int[] { h }));
+                    grad_c_tildes[t][h] = grad_c_t[h] * i_ts[t].Infer(new int[] { h }) * TanhDerivative(c_tildes[t].Infer(new int[] { h }));
+                    grad_i_ts[t][h] = grad_c_t[h] * c_tildes[t].Infer(new int[] { h }) * SigmoidDerivative(i_ts[t].Infer(new int[] { h }));
+                    grad_f_ts[t][h] = grad_c_t[h] * (t == 0 ? 0 : c_prevs[t - 1].Infer(new int[] { h })) * SigmoidDerivative(f_ts[t].Infer(new int[] { h }));
+                }
+
+                grad_c_next = grad_c_t;
             }
 
-            // --- 4. Atualizar Pesos e Bias (Gradient Descent) ---
-            // Aplica as atualizações APÓS todos os gradientes serem calculados para esta amostra
-            
-            // Atualizar pesos e bias da camada de saída
-            double[] currentWeightsOutputData = weightsOutput.GetData();
-            double[] currentBiasOutputData = biasOutput.GetData();
-            double[] updatedWeightsOutputData = new double[currentWeightsOutputData.Length];
-            double[] updatedBiasOutputData = new double[currentBiasOutputData.Length];
+            double[] grad_W_i = new double[inputSize * hiddenSize];
+            double[] grad_U_i = new double[hiddenSize * hiddenSize];
+            double[] grad_b_i = new double[hiddenSize];
+            double[] grad_W_f = new double[inputSize * hiddenSize];
+            double[] grad_U_f = new double[hiddenSize * hiddenSize];
+            double[] grad_b_f = new double[hiddenSize];
+            double[] grad_W_c = new double[inputSize * hiddenSize];
+            double[] grad_U_c = new double[hiddenSize * hiddenSize];
+            double[] grad_b_c = new double[hiddenSize];
+            double[] grad_W_o = new double[inputSize * hiddenSize];
+            double[] grad_U_o = new double[hiddenSize * hiddenSize];
+            double[] grad_b_o = new double[hiddenSize];
 
-            for(int k = 0; k < currentWeightsOutputData.Length; k++)
+            for (int t = 0; t < contextWindowSize; t++)
             {
-                updatedWeightsOutputData[k] = currentWeightsOutputData[k] - learningRate * gradWeightsOutputData[k];
-            }
-            for(int k = 0; k < currentBiasOutputData.Length; k++)
-            {
-                updatedBiasOutputData[k] = currentBiasOutputData[k] - learningRate * gradBiasOutputData[k];
+                double[] input_t_data = inputSteps[t].GetData();
+                double[] h_prev_data = t == 0 ? new double[hiddenSize] : h_ts[t - 1].GetData();
+                for (int h = 0; h < hiddenSize; h++)
+                {
+                    for (int i = 0; i < inputSteps[t].shape[0]; i++)
+                    {
+                        grad_W_i[i * hiddenSize + h] += grad_i_ts[t][h] * input_t_data[i];
+                        grad_W_f[i * hiddenSize + h] += grad_f_ts[t][h] * input_t_data[i];
+                        grad_W_c[i * hiddenSize + h] += grad_c_tildes[t][h] * input_t_data[i];
+                        grad_W_o[i * hiddenSize + h] += grad_o_ts[t][h] * input_t_data[i];
+                    }
+                    for (int h_prev = 0; h_prev < hiddenSize; h_prev++)
+                    {
+                        grad_U_i[h_prev * hiddenSize + h] += grad_i_ts[t][h] * h_prev_data[h_prev];
+                        grad_U_f[h_prev * hiddenSize + h] += grad_f_ts[t][h] * h_prev_data[h_prev];
+                        grad_U_c[h_prev * hiddenSize + h] += grad_c_tildes[t][h] * h_prev_data[h_prev];
+                        grad_U_o[h_prev * hiddenSize + h] += grad_o_ts[t][h] * h_prev_data[h_prev];
+                    }
+                    grad_b_i[h] += grad_i_ts[t][h];
+                    grad_b_f[h] += grad_f_ts[t][h];
+                    grad_b_c[h] += grad_c_tildes[t][h];
+                    grad_b_o[h] += grad_o_ts[t][h];
+                }
             }
 
-            weightsOutput = new Tensor(updatedWeightsOutputData, new int[] { intHiddenSize, outputSize });
-            biasOutput = new Tensor(updatedBiasOutputData, new int[] { outputSize });
-
-            // Atualizar pesos e bias da camada oculta
-            double[] currentWeightsHiddenData = weightsHidden.GetData();
-            double[] currentBiasHiddenData = biasHidden.GetData();
-            double[] updatedWeightsHiddenData = new double[currentWeightsHiddenData.Length];
-            double[] updatedBiasHiddenData = new double[currentBiasHiddenData.Length];
-            
-            for(int k = 0; k < currentWeightsHiddenData.Length; k++)
-            {
-                updatedWeightsHiddenData[k] = currentWeightsHiddenData[k] - learningRate * gradWeightsHiddenData[k];
-            }
-            for(int k = 0; k < currentBiasHiddenData.Length; k++)
-            {
-                updatedBiasHiddenData[k] = currentBiasHiddenData[k] - learningRate * gradBiasHiddenData[k];
-            }
-
-            weightsHidden = new Tensor(updatedWeightsHiddenData, new int[] { inputSize, intHiddenSize });
-            biasHidden = new Tensor(updatedBiasHiddenData, new int[] { intHiddenSize });
+            // Atualiza pesos
+            UpdateWeights(W_i, grad_W_i, learningRate);
+            UpdateWeights(U_i, grad_U_i, learningRate);
+            UpdateWeights(b_i, grad_b_i, learningRate);
+            UpdateWeights(W_f, grad_W_f, learningRate);
+            UpdateWeights(U_f, grad_U_f, learningRate);
+            UpdateWeights(b_f, grad_b_f, learningRate);
+            UpdateWeights(W_c, grad_W_c, learningRate);
+            UpdateWeights(U_c, grad_U_c, learningRate);
+            UpdateWeights(b_c, grad_b_c, learningRate);
+            UpdateWeights(W_o, grad_W_o, learningRate);
+            UpdateWeights(U_o, grad_U_o, learningRate);
+            UpdateWeights(b_o, grad_b_o, learningRate);
+            UpdateWeights(W_out, grad_W_out, learningRate);
+            UpdateWeights(b_out, grad_b_out, learningRate);
         }
 
         return epochLoss / inputs.Length;
     }
 
-    // Método auxiliar para calcular a saída da ReLU da camada oculta
-    private Tensor ComputeHidden(Tensor input)
+    private void UpdateWeights(Tensor tensor, double[] grad, double learningRate)
     {
-        double[] hiddenData = new double[intHiddenSize];
-        for (int h = 0; h < intHiddenSize; h++)
+        double[] data = tensor.GetData();
+        double[] updatedData = new double[data.Length];
+        for (int i = 0; i < data.Length; i++)
         {
-            double sum = 0;
-            for (int i = 0; i < inputSize; i++)
-            {
-                sum += input.Infer(new int[] { i }) * weightsHidden.Infer(new int[] { i, h });
-            }
-
-            sum += biasHidden.Infer(new int[] { h });
-            hiddenData[h] = Math.Max(0, sum); // ReLU
+            updatedData[i] = data[i] - learningRate * grad[i];
         }
-
-        return new Tensor(hiddenData, new int[] { intHiddenSize });
-    }
-
-    // NOVO Método auxiliar para calcular a entrada da ReLU da camada oculta (antes da ativação)
-    private Tensor ComputeHiddenInput(Tensor input)
-    {
-        double[] hiddenInputData = new double[intHiddenSize];
-        for (int h = 0; h < intHiddenSize; h++)
-        {
-            double sum = 0;
-            for (int i = 0; i < inputSize; i++)
-            {
-                sum += input.Infer(new int[] { i }) * weightsHidden.Infer(new int[] { i, h });
-            }
-
-            sum += biasHidden.Infer(new int[] { h });
-            hiddenInputData[h] = sum; // Sem ReLU aqui
-        }
-
-        return new Tensor(hiddenInputData, new int[] { intHiddenSize });
+        // Criar um novo tensor com os dados atualizados
+        typeof(Tensor).GetField("data", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+            ?.SetValue(tensor, updatedData);
     }
 
     public void SaveModel(string filePath)
@@ -299,12 +459,12 @@ public class NeuralNetwork
             var modelData = new NeuralNetworkModelData
             {
                 InputSize = inputSize,
-                HiddenSize = intHiddenSize,
+                HiddenSize = hiddenSize,
                 OutputSize = outputSize,
-                WeightsHidden = new TensorData { data = weightsHidden.GetData(), shape = weightsHidden.GetShape() },
-                BiasHidden = new TensorData { data = biasHidden.GetData(), shape = biasHidden.GetShape() },
-                WeightsOutput = new TensorData { data = weightsOutput.GetData(), shape = weightsOutput.GetShape() },
-                BiasOutput = new TensorData { data = biasOutput.GetData(), shape = biasOutput.GetShape() }
+                WeightsHidden = new TensorData { data = W_i.GetData(), shape = W_i.GetShape() },
+                BiasHidden = new TensorData { data = b_i.GetData(), shape = b_i.GetShape() },
+                WeightsOutput = new TensorData { data = W_out.GetData(), shape = W_out.GetShape() },
+                BiasOutput = new TensorData { data = b_out.GetData(), shape = b_out.GetShape() }
             };
 
             var options = new JsonSerializerOptions
@@ -313,13 +473,12 @@ public class NeuralNetwork
                 NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals
             };
             string jsonString = JsonSerializer.Serialize(modelData, options);
-
             File.WriteAllText(filePath, jsonString);
-            Console.WriteLine($"Modelo salvo em JSON (System.Text.Json) em: {filePath}");
+            Console.WriteLine($"Modelo salvo em JSON: {filePath}");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Erro ao salvar o modelo em JSON (System.Text.Json): {ex.Message}");
+            Console.WriteLine($"Erro ao salvar o modelo: {ex.Message}");
         }
     }
 
@@ -329,47 +488,43 @@ public class NeuralNetwork
         {
             if (!File.Exists(filePath))
             {
-                Console.WriteLine($"Arquivo do modelo JSON não encontrado em: {filePath}");
+                Console.WriteLine($"Arquivo do modelo não encontrado: {filePath}");
                 return null;
             }
 
             string jsonString = File.ReadAllText(filePath);
             var modelData = JsonSerializer.Deserialize<NeuralNetworkModelData>(jsonString);
-            if (modelData == null)
-            {
-                throw new Exception("Falha ao desserializar dados do modelo JSON.");
-            }
-
-            if (modelData.WeightsHidden?.data == null || modelData.WeightsHidden.shape == null ||
-                modelData.BiasHidden?.data == null || modelData.BiasHidden.shape == null ||
-                modelData.WeightsOutput?.data == null || modelData.WeightsOutput.shape == null ||
-                modelData.BiasOutput?.data == null || modelData.BiasOutput.shape == null)
+            if (modelData == null || modelData.WeightsHidden?.data == null || modelData.BiasHidden?.data == null ||
+                modelData.WeightsOutput?.data == null || modelData.BiasOutput?.data == null)
             {
                 throw new Exception("Dados do modelo JSON estão incompletos.");
             }
 
-            Tensor loadedWeightsHidden = new Tensor(modelData.WeightsHidden.data, modelData.WeightsHidden.shape);
-            Tensor loadedBiasHidden = new Tensor(modelData.BiasHidden.data, modelData.BiasHidden.shape);
-            Tensor loadedWeightsOutput = new Tensor(modelData.WeightsOutput.data, modelData.WeightsOutput.shape);
-            Tensor loadedBiasOutput = new Tensor(modelData.BiasOutput.data, modelData.BiasOutput.shape);
+            // Para compatibilidade, usamos apenas W_i, b_i, W_out, b_out e inicializamos os outros com valores padrão
+            Tensor W_i = new Tensor(modelData.WeightsHidden.data, modelData.WeightsHidden.shape);
+            Tensor b_i = new Tensor(modelData.BiasHidden.data, modelData.BiasHidden.shape);
+            Tensor W_out = new Tensor(modelData.WeightsOutput.data, modelData.WeightsOutput.shape);
+            Tensor b_out = new Tensor(modelData.BiasOutput.data, modelData.BiasOutput.shape);
 
-            if (loadedWeightsHidden.GetShape()[0] != modelData.InputSize ||
-                loadedWeightsHidden.GetShape()[1] != modelData.HiddenSize)
-                throw new Exception("Dimensões de weightsHidden não correspondem ao modelo carregado.");
-            if (loadedBiasHidden.GetShape()[0] != modelData.HiddenSize)
-                throw new Exception("Dimensões de biasHidden não correspondem ao modelo carregado.");
-            if (loadedWeightsOutput.GetShape()[0] != modelData.HiddenSize ||
-                loadedWeightsOutput.GetShape()[1] != modelData.OutputSize)
-                throw new Exception("Dimensões de weightsOutput não correspondem ao modelo carregado.");
-            if (loadedBiasOutput.GetShape()[0] != modelData.OutputSize)
-                throw new Exception("Dimensões de biasOutput não correspondem ao modelo carregado.");
+            Random rand = new Random();
+            double sqrtFanIn = Math.Sqrt(2.0 / (modelData.InputSize + modelData.HiddenSize));
+            Tensor U_i = new Tensor(InitializeWeights(modelData.HiddenSize, modelData.HiddenSize, sqrtFanIn, rand), new int[] { modelData.HiddenSize, modelData.HiddenSize });
+            Tensor W_f = new Tensor(InitializeWeights(modelData.InputSize, modelData.HiddenSize, sqrtFanIn, rand), new int[] { modelData.InputSize, modelData.HiddenSize });
+            Tensor U_f = new Tensor(InitializeWeights(modelData.HiddenSize, modelData.HiddenSize, sqrtFanIn, rand), new int[] { modelData.HiddenSize, modelData.HiddenSize });
+            Tensor b_f = new Tensor(new double[modelData.HiddenSize], new int[] { modelData.HiddenSize });
+            Tensor W_c = new Tensor(InitializeWeights(modelData.InputSize, modelData.HiddenSize, sqrtFanIn, rand), new int[] { modelData.InputSize, modelData.HiddenSize });
+            Tensor U_c = new Tensor(InitializeWeights(modelData.HiddenSize, modelData.HiddenSize, sqrtFanIn, rand), new int[] { modelData.HiddenSize, modelData.HiddenSize });
+            Tensor b_c = new Tensor(new double[modelData.HiddenSize], new int[] { modelData.HiddenSize });
+            Tensor W_o = new Tensor(InitializeWeights(modelData.InputSize, modelData.HiddenSize, sqrtFanIn, rand), new int[] { modelData.InputSize, modelData.HiddenSize });
+            Tensor U_o = new Tensor(InitializeWeights(modelData.HiddenSize, modelData.HiddenSize, sqrtFanIn, rand), new int[] { modelData.HiddenSize, modelData.HiddenSize });
+            Tensor b_o = new Tensor(new double[modelData.HiddenSize], new int[] { modelData.HiddenSize });
 
-            return new NeuralNetwork(modelData.InputSize, modelData.HiddenSize, modelData.OutputSize,
-                loadedWeightsHidden, loadedBiasHidden, loadedWeightsOutput, loadedBiasOutput);
+            return new NeuralNetwork(modelData.InputSize, modelData.HiddenSize, modelData.OutputSize, modelData.InputSize / modelData.OutputSize,
+                W_i, U_i, b_i, W_f, U_f, b_f, W_c, U_c, b_c, W_o, U_o, b_o, W_out, b_out);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Erro ao carregar o modelo JSON (System.Text.Json): {ex.Message}");
+            Console.WriteLine($"Erro ao carregar o modelo: {ex.Message}");
             return null;
         }
     }
