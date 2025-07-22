@@ -1,8 +1,13 @@
 using Microsoft.AspNetCore.Mvc;
 using System.Text;
-using System.Text.Json;
+using System.Text.RegularExpressions;
 using Core;
 using Models;
+using Microsoft.Extensions.Configuration;
+using System.IO;
+using System.Collections.Generic;
+using System;
+using System.Linq; // Adicionado para .Last() e .Skip()
 
 namespace GenerativeAIAPI.Controllers
 {
@@ -10,43 +15,93 @@ namespace GenerativeAIAPI.Controllers
     [Route("api/[controller]")]
     public class GenerativeAIController : ControllerBase
     {
-        private static string modelDir = "/home/mplopes/RiderProjects/generative/generative/models/";
-        private readonly string modelPath = Path.Combine(modelDir, "model_epoch_10.json");
-        private readonly string vocabPath = Path.Combine(modelDir, "vocab_epoch_10.txt");
+        private readonly string modelDir;
+        private readonly string modelPath;
+        private readonly string vocabPath;
         private NeuralNetwork? model;
-        private Dictionary<char, int> charToIndex;
-        private List<char> indexToChar;
+        private Dictionary<string, int> tokenToIndex;
+        private List<string> indexToToken;
         private const int HiddenSize = 256;
+        private readonly string padToken = "[PAD]";
+        private readonly int contextWindowSize; // Novo: Armazenará o tamanho da janela de contexto
 
-        public GenerativeAIController()
+        public GenerativeAIController(IConfiguration configuration)
         {
-            charToIndex = new Dictionary<char, int>();
-            indexToChar = new List<char>();
+            modelDir = "/home/mplopes/Documentos/generative/generative/";
+            
+            if (!Directory.Exists(modelDir))
+            {
+                Console.WriteLine($"Aviso: O diretório do modelo '{modelDir}' não existe na inicialização da API.");
+            }
+
+            // O número da época final será lido da configuração do aplicativo.
+            contextWindowSize = configuration.GetValue<int>("ModelSettings:ContextWindowSize", 10); // Novo: Padrão para 10
+            
+            modelPath = Path.Combine(modelDir, $"model.json"); // Carrega o modelo da época final
+            vocabPath = Path.Combine(modelDir, "vocab.txt");
+
+            tokenToIndex = new Dictionary<string, int>();
+            indexToToken = new List<string>();
+
             if (System.IO.File.Exists(modelPath) && System.IO.File.Exists(vocabPath))
             {
-                model = NeuralNetwork.LoadModel(modelPath);
-                LoadVocabulary();
+                try
+                {
+                    LoadVocabulary();
+                    if (tokenToIndex.Count > 0)
+                    {
+                        model = NeuralNetwork.LoadModel(modelPath);
+                        // Verifica se o modelo carregado é compatível com o VOCABULÁRIO e o TAMANHO DA JANELA
+                        if (model != null && 
+                            (model.InputSize != tokenToIndex.Count * contextWindowSize || model.OutputSize != tokenToIndex.Count))
+                        {
+                            Console.WriteLine($"Modelo carregado, mas suas dimensões ({model.InputSize}, {model.OutputSize}) não correspondem ao tamanho do vocabulário ({tokenToIndex.Count}) e ContextWindowSize ({contextWindowSize}). O modelo pode ser incompatível.");
+                            model = null;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Erro ao inicializar o controlador: {ex.Message}");
+                    model = null;
+                    tokenToIndex.Clear();
+                    indexToToken.Clear();
+                }
+            }
+            else
+            {
+                Console.WriteLine("Modelo ou vocabulário não encontrados na inicialização do controlador. Treine o modelo primeiro.");
             }
         }
 
         private bool IsValidText(string? text)
         {
-            return !string.IsNullOrEmpty(text);
+            if (string.IsNullOrEmpty(text)) return true;
+
+            var specialChars = new[] { '.', ',', '!', '?', ':', ';', '"', '\'', '-', '(', ')' };
+            var specialCharPattern = string.Join("|", specialChars.Select(c => Regex.Escape(c.ToString())));
+            var pattern = $@"(\p{{L}}+|\p{{N}}+|{specialCharPattern})";
+            
+            var matches = Regex.Matches(text.ToLower(), pattern);
+            return matches.All(m => tokenToIndex.ContainsKey(m.Value));
         }
 
-        // POST: api/GenerativeAI/train
         [HttpPost("train")]
         public IActionResult Train([FromBody] TrainRequest request)
         {
             try
             {
+                // Este endpoint é mantido para compatibilidade, mas o treinamento completo deve usar o programa Trainer.
+                // Ajustamos ContextWindowSize aqui para que ele use o que foi passado na requisição, se houver.
+                int requestContextWindowSize = request.ContextWindowSize;
+
                 if (string.IsNullOrEmpty(request.TextData))
                 {
                     return BadRequest(new { Error = "TextData não pode estar vazio." });
                 }
-                if (request.SequenceLength <= 0)
+                if (requestContextWindowSize <= 0)
                 {
-                    return BadRequest(new { Error = "SequenceLength deve ser positivo." });
+                    return BadRequest(new { Error = "ContextWindowSize deve ser positivo." });
                 }
                 if (request.LearningRate.HasValue && request.LearningRate <= 0)
                 {
@@ -57,22 +112,36 @@ namespace GenerativeAIAPI.Controllers
                     return BadRequest(new { Error = "Epochs deve ser positivo." });
                 }
 
-                // Constrói vocabulário a partir do texto do CC-100
-                BuildVocabulary(request.TextData);
-                int vocabSize = charToIndex.Count;
-
-                if (vocabSize == 0)
+                if (System.IO.File.Exists(vocabPath))
                 {
-                    return BadRequest(new { Error = "Nenhum caractere válido encontrado no texto de treinamento." });
+                    LoadVocabulary();
                 }
 
-                // Inicializa o modelo com tamanho de entrada/saída baseado no vocabulário
-                model = new NeuralNetwork(vocabSize, HiddenSize, vocabSize);
+                if (tokenToIndex.Count == 0)
+                {
+                    BuildVocabulary(request.TextData);
+                }
 
-                // Prepara o conjunto de dados
-                var (inputs, targets) = PrepareDataset(request.TextData, request.SequenceLength);
+                int vocabSize = tokenToIndex.Count;
+                if (vocabSize == 0)
+                {
+                    return BadRequest(new { Error = "Nenhum token válido encontrado no texto de treinamento." });
+                }
+
+                // Inicializa o modelo com o novo input size (vocabSize * contextWindowSize)
+                if (model == null || model.InputSize != vocabSize * requestContextWindowSize || model.OutputSize != vocabSize)
+                {
+                    Console.WriteLine($"Inicializando novo modelo com VocabSize: {vocabSize}, ContextWindowSize: {requestContextWindowSize}");
+                    model = new NeuralNetwork(vocabSize * requestContextWindowSize, HiddenSize, vocabSize);
+                }
+
+                var (inputs, targets) = PrepareDataset(request.TextData, requestContextWindowSize);
                 
-                // Treina o modelo
+                if (inputs.Length == 0)
+                {
+                     return BadRequest(new { Error = "Dados de treinamento insuficientes para a ContextWindowSize especificada." });
+                }
+
                 double learningRate = request.LearningRate ?? 0.01;
                 int epochs = request.Epochs ?? 10;
                 double totalLoss = 0;
@@ -86,7 +155,6 @@ namespace GenerativeAIAPI.Controllers
                     Console.WriteLine($"Época {epoch + 1}/{epochs}, Perda: {epochLoss:F4}");
                 }
 
-                // Salva o modelo e o vocabulário
                 model.SaveModel(modelPath);
                 SaveVocabulary();
 
@@ -98,39 +166,53 @@ namespace GenerativeAIAPI.Controllers
             }
         }
 
-        // POST: api/GenerativeAI/test
         [HttpPost("test")]
         public IActionResult Test([FromBody] TestRequest request)
         {
             try
             {
-                if (model == null || charToIndex.Count == 0)
+                if (model == null || tokenToIndex.Count == 0)
                 {
                     return BadRequest(new { Error = "Modelo ou vocabulário não inicializados. Treine o modelo primeiro." });
                 }
-                if (request.SequenceLength <= 0)
+                // Usa o ContextWindowSize da requisição, mas o modelo foi treinado com o da API.
+                // Para consistência, é melhor que o ContextWindowSize da requisição seja o mesmo do modelo carregado.
+                // Por isso, fazemos uma validação.
+                if (request.ContextWindowSize != contextWindowSize)
                 {
-                    return BadRequest(new { Error = "SequenceLength deve ser positivo." });
+                     return BadRequest(new { Error = $"ContextWindowSize da requisição ({request.ContextWindowSize}) deve ser igual ao ContextWindowSize do modelo carregado ({contextWindowSize})." });
+                }
+                if (request.ContextWindowSize <= 0)
+                {
+                    return BadRequest(new { Error = "ContextWindowSize deve ser positivo." });
+                }
+                if (string.IsNullOrEmpty(request.TextData))
+                {
+                     return BadRequest(new { Error = "TextData não pode estar vazio." });
                 }
 
-                // Verifica se os dados de teste contêm caracteres fora do vocabulário
                 if (!IsValidText(request.TextData))
                 {
-                    return BadRequest(new { Error = "Os dados de teste contêm caracteres não presentes no vocabulário de treinamento." });
+                    return BadRequest(new { Error = "Os dados de teste contêm tokens não presentes no vocabulário de treinamento." });
                 }
 
-                // Prepara o conjunto de dados de teste
-                var (inputs, targets) = PrepareDataset(request.TextData, request.SequenceLength);
+                var (inputs, targets) = PrepareDataset(request.TextData, request.ContextWindowSize);
                 
+                if (inputs.Length == 0)
+                {
+                    return BadRequest(new { Error = "Dados de teste insuficientes para a ContextWindowSize especificada." });
+                }
+
                 double totalLoss = 0;
                 for (int i = 0; i < inputs.Length; i++)
                 {
                     Tensor output = model.Forward(inputs[i]);
-                    for (int o = 0; o < charToIndex.Count; o++)
+                    for (int o = 0; o < tokenToIndex.Count; o++)
                     {
                         if (targets[i].Infer(new int[] { o }) == 1.0)
                         {
-                            totalLoss += -Math.Log(output.Infer(new int[] { o }) + 1e-9);
+                            double outputValue = output.Infer(new int[] { o });
+                            totalLoss += -Math.Log(outputValue + 1e-9);
                             break;
                         }
                     }
@@ -145,68 +227,135 @@ namespace GenerativeAIAPI.Controllers
             }
         }
 
-        // POST: api/GenerativeAI/generate
         [HttpPost("generate")]
         public IActionResult Generate([FromBody] GenerateRequest request)
         {
             try
             {
-                if (model == null || charToIndex.Count == 0)
+                Console.WriteLine($"Input do usuario {request.SeedText}: SequenceLength {request.SequenceLength}, SeedText {request.SeedText}, ContextWindowSize {request.ContextWindowSize}, Length {request.Length}, Temperature {request.Temperature}");
+                if (model == null || tokenToIndex.Count == 0)
                 {
                     return BadRequest(new { Error = "Modelo ou vocabulário não inicializados. Treine o modelo primeiro." });
                 }
-                if (request.SequenceLength <= 0)
+                // Valida ContextWindowSize
+                if (request.ContextWindowSize != contextWindowSize)
                 {
-                    return BadRequest(new { Error = "SequenceLength deve ser positivo." });
+                     return BadRequest(new { Error = $"ContextWindowSize da requisição ({request.ContextWindowSize}) deve ser igual ao ContextWindowSize do modelo carregado ({contextWindowSize})." });
+                }
+                if (request.ContextWindowSize <= 0)
+                {
+                    return BadRequest(new { Error = "ContextWindowSize deve ser positivo." });
                 }
                 if (request.Length.HasValue && request.Length <= 0)
                 {
                     return BadRequest(new { Error = "Length deve ser positivo." });
                 }
-
-                // Verifica se o texto semente contém caracteres válidos
-                if (!IsValidText(request.SeedText))
+                if (request.Temperature <= 0)
                 {
-                    return BadRequest(new { Error = "O texto semente contém caracteres não presentes no vocabulário de treinamento." });
+                    return BadRequest(new { Error = "Temperature deve ser positivo." });
                 }
 
-                string seed = string.IsNullOrEmpty(request.SeedText) ? indexToChar[0].ToString() : request.SeedText;
+                if (!IsValidText(request.SeedText))
+                {
+                    return BadRequest(new { Error = "O texto semente contém tokens não presentes no vocabulário de treinamento." });
+                }
+
+                string seed = string.IsNullOrEmpty(request.SeedText) ? padToken : request.SeedText.ToLower();
                 int length = request.Length ?? 50;
+                double temperature = request.Temperature;
+
                 StringBuilder generatedText = new StringBuilder(seed);
 
-                // Converte o texto semente para tensor de entrada (usa o último caractere)
-                Tensor input = TextToTensor(seed);
+                // Converte a semente em uma lista de tokens, preenchendo com [PAD] se necessário
+                // até atingir o tamanho da janela de contexto.
+                List<string> currentTokens = TokenizeTextForWindow(seed);
                 
-                // Gera texto
+                // Reduz a lista para ter apenas o ContextWindowSize de tokens (os últimos da semente)
+                // e garante que sempre tenha ContextWindowSize tokens, preenchendo com PAD no início se faltar.
+                while (currentTokens.Count < contextWindowSize)
+                {
+                    currentTokens.Insert(0, padToken);
+                }
+                if (currentTokens.Count > contextWindowSize)
+                {
+                    currentTokens = currentTokens.Skip(currentTokens.Count - contextWindowSize).ToList();
+                }
+
                 Random rand = new Random();
+                var specialChars = new[] { ".", ",", "!", "?", ":", ";", "\"", "'", "-", "(", ")" };
+
                 for (int i = 0; i < length; i++)
                 {
-                    Tensor output = model.Forward(input);
-                    double[] probs = output.GetData();
-                    
-                    // Amostra o próximo caractere usando probabilidades
-                    double sum = probs.Sum();
-                    double r = rand.NextDouble() * sum;
+                    Tensor input = ConvertWindowToInputTensor(currentTokens);
+                    Tensor logitsTensor = model.ForwardLogits(input);
+                    double[] logits = logitsTensor.GetData();
+
+                    double[] probs = new double[logits.Length];
+                    double sumExpTemp = 0;
+                    for (int j = 0; j < logits.Length; j++)
+                    {
+                        probs[j] = Math.Exp(logits[j] / temperature);
+                        sumExpTemp += probs[j];
+                    }
+
+                    for (int j = 0; j < probs.Length; j++)
+                    {
+                        probs[j] /= sumExpTemp;
+                    }
+
+                    double r = rand.NextDouble() * probs.Sum();
                     double cumulative = 0;
-                    int nextCharIdx = 0;
+                    int nextTokenIdx = 0;
                     for (int j = 0; j < probs.Length; j++)
                     {
                         cumulative += probs[j];
                         if (r <= cumulative)
                         {
-                            nextCharIdx = j;
+                            nextTokenIdx = j;
                             break;
                         }
                     }
 
-                    char nextChar = indexToChar[nextCharIdx];
-                    generatedText.Append(nextChar);
+                    string nextToken = indexToToken[nextTokenIdx];
+                    
+                    if (nextToken == padToken)
+                    {
+                        // Se o modelo prevê PAD, podemos parar a geração ou ignorá-lo
+                        // Por enquanto, vamos ignorar e continuar, mas é um sinal de que pode ser o fim da "ideia"
+                        continue; 
+                    }
 
-                    // Atualiza a entrada para a próxima iteração
-                    input = CharToTensor(nextChar);
+                    bool isSpecialChar = specialChars.Contains(nextToken);
+                    bool lastCharIsSpecialChar = generatedText.Length > 0 && specialChars.Contains(generatedText[^1].ToString());
+
+                    if (!isSpecialChar)
+                    {
+                        if (generatedText.Length > 0 && generatedText[^1] != ' ' && !lastCharIsSpecialChar)
+                        {
+                            generatedText.Append(" ");
+                        }
+                    }
+                    else
+                    {
+                        if (generatedText.Length > 0 && generatedText[^1] == ' ')
+                        {
+                            generatedText.Remove(generatedText.Length - 1, 1);
+                        }
+                    }
+                    generatedText.Append(nextToken);
+                    
+                    // Atualiza a janela de contexto para a próxima previsão
+                    currentTokens.RemoveAt(0); // Remove o token mais antigo
+                    currentTokens.Add(nextToken); // Adiciona o token recém-gerado
                 }
 
-                return Ok(new { GeneratedText = generatedText.ToString() });
+                string finalGeneratedText = generatedText.ToString().Trim();
+                if (finalGeneratedText.Length > 0 && char.IsLetter(finalGeneratedText[0]))
+                {
+                    finalGeneratedText = char.ToUpper(finalGeneratedText[0]) + finalGeneratedText.Substring(1);
+                }
+                Console.WriteLine($"Output do Modelo {finalGeneratedText}");
+                return Ok(new { GeneratedText = finalGeneratedText });
             }
             catch (Exception ex)
             {
@@ -214,17 +363,152 @@ namespace GenerativeAIAPI.Controllers
             }
         }
 
+        [HttpPost("evaluate")]
+        public IActionResult Evaluate([FromBody] TestRequest request)
+        {
+            try
+            {
+                if (model == null || tokenToIndex.Count == 0)
+                {
+                    return BadRequest(new { Error = "Modelo ou vocabulário não inicializados. Treine o modelo primeiro." });
+                }
+                // Valida ContextWindowSize
+                if (request.ContextWindowSize != contextWindowSize)
+                {
+                     return BadRequest(new { Error = $"ContextWindowSize da requisição ({request.ContextWindowSize}) deve ser igual ao ContextWindowSize do modelo carregado ({contextWindowSize})." });
+                }
+                if (request.ContextWindowSize <= 0)
+                {
+                    return BadRequest(new { Error = "ContextWindowSize deve ser positivo." });
+                }
+                if (string.IsNullOrEmpty(request.TextData))
+                {
+                    return BadRequest(new { Error = "TextData não pode estar vazio." });
+                }
+
+                if (!IsValidText(request.TextData))
+                {
+                    return BadRequest(new { Error = "O texto de entrada contém tokens não presentes no vocabulário de treinamento." });
+                }
+
+                string seed = request.TextData.ToLower();
+                int length = 50;
+                double temperature = 1.0;
+
+                StringBuilder generatedText = new StringBuilder(seed);
+
+                List<string> currentTokens = TokenizeTextForWindow(seed);
+                while (currentTokens.Count < contextWindowSize)
+                {
+                    currentTokens.Insert(0, padToken);
+                }
+                if (currentTokens.Count > contextWindowSize)
+                {
+                    currentTokens = currentTokens.Skip(currentTokens.Count - contextWindowSize).ToList();
+                }
+
+                Random rand = new Random();
+                var specialChars = new[] { ".", ",", "!", "?", ":", ";", "\"", "'", "-", "(", ")" };
+
+                for (int i = 0; i < length; i++)
+                {
+                    Tensor input = ConvertWindowToInputTensor(currentTokens);
+                    Tensor logitsTensor = model.ForwardLogits(input);
+                    double[] logits = logitsTensor.GetData();
+
+                    double[] probs = new double[logits.Length];
+                    double sumExpTemp = 0;
+                    for (int j = 0; j < logits.Length; j++)
+                    {
+                        probs[j] = Math.Exp(logits[j] / temperature);
+                        sumExpTemp += probs[j];
+                    }
+                    for (int j = 0; j < probs.Length; j++)
+                    {
+                        probs[j] /= sumExpTemp;
+                    }
+
+                    double r = rand.NextDouble() * probs.Sum();
+                    double cumulative = 0;
+                    int nextTokenIdx = 0;
+                    for (int j = 0; j < probs.Length; j++)
+                    {
+                        cumulative += probs[j];
+                        if (r <= cumulative)
+                        {
+                            nextTokenIdx = j;
+                            break;
+                        }
+                    }
+
+                    string nextToken = indexToToken[nextTokenIdx];
+                    
+                    if (nextToken == padToken) continue; 
+
+                    bool isSpecialChar = specialChars.Contains(nextToken);
+                    bool lastCharIsSpecialChar = generatedText.Length > 0 && specialChars.Contains(generatedText[^1].ToString());
+
+                    if (!isSpecialChar)
+                    {
+                        if (generatedText.Length > 0 && generatedText[^1] != ' ' && !lastCharIsSpecialChar)
+                        {
+                            generatedText.Append(" ");
+                        }
+                    }
+                    else
+                    {
+                        if (generatedText.Length > 0 && generatedText[^1] == ' ')
+                        {
+                            generatedText.Remove(generatedText.Length - 1, 1);
+                        }
+                    }
+                    generatedText.Append(nextToken);
+                    currentTokens.RemoveAt(0);
+                    currentTokens.Add(nextToken);
+                }
+
+                string finalGeneratedText = generatedText.ToString().Trim();
+                if (finalGeneratedText.Length > 0 && char.IsLetter(finalGeneratedText[0]))
+                {
+                    finalGeneratedText = char.ToUpper(finalGeneratedText[0]) + finalGeneratedText.Substring(1);
+                }
+
+                return Ok(new { EvaluatedText = finalGeneratedText });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { Error = $"Falha na avaliação: {ex.Message}" });
+            }
+        }
+
         private void BuildVocabulary(string text)
         {
-            charToIndex = new Dictionary<char, int>();
-            indexToChar = new List<char>();
-            foreach (char c in text.Distinct().OrderBy(c => c))
-            {
-                // Ignora caracteres de controle, substituição (�) ou não imprimíveis
-                if (char.IsControl(c) || c == '\uFFFD' || string.IsNullOrWhiteSpace(c.ToString())) continue;
+            tokenToIndex.Clear();
+            indexToToken.Clear();
+            tokenToIndex[padToken] = indexToToken.Count;
+            indexToToken.Add(padToken);
 
-                charToIndex[c] = indexToChar.Count;
-                indexToChar.Add(c);
+            var specialChars = new[] { '.', ',', '!', '?', ':', ';', '"', '\'', '-', '(', ')' };
+            var specialCharPattern = string.Join("|", specialChars.Select(c => Regex.Escape(c.ToString())));
+            var pattern = $@"(\p{{L}}+|\p{{N}}+|{specialCharPattern})";
+            
+            var matches = Regex.Matches(text.ToLower(), pattern);
+            var tokens = matches.Select(m => m.Value).Where(t => !string.IsNullOrEmpty(t)).Distinct().OrderBy(t => t).ToArray();
+
+            foreach (string token in tokens)
+            {
+                if (char.IsControl(token[0]) && token[0] != ' ' || token == "\uFFFD" || (int)token[0] > 0x10FFFF) continue;
+
+                if (!tokenToIndex.ContainsKey(token))
+                {
+                    tokenToIndex[token] = indexToToken.Count;
+                    indexToToken.Add(token);
+                }
+            }
+
+            if (tokenToIndex.Count > 0)
+            {
+                SaveVocabulary();
             }
         }
 
@@ -232,11 +516,11 @@ namespace GenerativeAIAPI.Controllers
         {
             try
             {
-                using (var writer = new StreamWriter(vocabPath, false, Encoding.UTF8))
+                using (var writer = new StreamWriter(vocabPath, false, new UTF8Encoding(false)))
                 {
-                    foreach (char c in indexToChar)
+                    foreach (string token in indexToToken)
                     {
-                        writer.WriteLine(c);
+                        writer.WriteLine(token);
                     }
                 }
                 Console.WriteLine($"Vocabulário salvo em: {vocabPath}");
@@ -251,84 +535,139 @@ namespace GenerativeAIAPI.Controllers
         {
             try
             {
-                charToIndex = new Dictionary<char, int>();
-                indexToChar = new List<char>();
+                tokenToIndex = new Dictionary<string, int>();
+                indexToToken = new List<string>();
+                tokenToIndex[padToken] = indexToToken.Count;
+                indexToToken.Add(padToken);
+
                 using (var reader = new StreamReader(vocabPath, Encoding.UTF8, true))
                 {
+                    int lineNumber = 0;
                     while (!reader.EndOfStream)
                     {
+                        lineNumber++;
                         string line = reader.ReadLine()?.Trim();
-                        if (string.IsNullOrEmpty(line) || line.Length != 1) continue;
-                        char c = line[0];
-                        if (!charToIndex.ContainsKey(c) && !char.IsControl(c) && c != '\uFFFD' && !string.IsNullOrWhiteSpace(c.ToString()))
+                        if (string.IsNullOrEmpty(line))
                         {
-                            charToIndex[c] = indexToChar.Count;
-                            indexToChar.Add(c);
+                            Console.WriteLine($"Linha inválida ignorada no vocabulário na linha {lineNumber}: '{line}'");
+                            continue;
+                        }
+
+                        string token = line;
+                        if (token == padToken && tokenToIndex.ContainsKey(padToken)) continue; 
+
+                        if (char.IsControl(token[0]) && token[0] != ' ' || token == "\uFFFD" || (int)token[0] > 0x10FFFF)
+                        {
+                            Console.WriteLine($"Token inválido ignorado no vocabulário na linha {lineNumber}: {token}");
+                            continue;
+                        }
+
+                        if (!tokenToIndex.ContainsKey(token))
+                        {
+                            tokenToIndex[token] = indexToToken.Count;
+                            indexToToken.Add(token);
                         }
                     }
                 }
-                if (indexToChar.Count == 0)
+
+                if (indexToToken.Count == 0)
                 {
-                    throw new InvalidOperationException("Nenhum caractere válido encontrado no arquivo de vocabulário.");
+                    throw new InvalidOperationException("Nenhum token válido encontrado no arquivo de vocabulário.");
                 }
-                Console.WriteLine($"Vocabulário carregado de: {vocabPath}, Tamanho: {charToIndex.Count} caracteres.");
+                Console.WriteLine($"Vocabulário carregado de: {vocabPath}, Tamanho: {tokenToIndex.Count} tokens.");
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Erro ao carregar vocabulário: {ex.Message}");
-                charToIndex = new Dictionary<char, int>();
-                indexToChar = new List<char>();
+                tokenToIndex = new Dictionary<string, int>();
+                indexToToken = new List<string>();
+                throw; 
             }
         }
-        private (Tensor[] inputs, Tensor[] targets) PrepareDataset(string text, int sequenceLength)
+
+        // Modificado para aceitar contextWindowSize
+        private (Tensor[] inputs, Tensor[] targets) PrepareDataset(string text, int currentContextWindowSize)
         {
-            // Divide o texto em parágrafos (formato CC-100)
-            var paragraphs = text.Split(new[] { "\n\n" }, StringSplitOptions.RemoveEmptyEntries);
             var inputs = new List<Tensor>();
             var targets = new List<Tensor>();
 
-            foreach (var paragraph in paragraphs)
+            var specialChars = new[] { '.', ',', '!', '?', ':', ';', '"', '\'', '-', '(', ')' };
+            var specialCharPattern = string.Join("|", specialChars.Select(c => Regex.Escape(c.ToString())));
+            var pattern = $@"(\p{{L}}+|\p{{N}}+|{specialCharPattern})";
+            
+            var matches = Regex.Matches(text.ToLower(), pattern);
+            var tokens = matches.Select(m => m.Value).Where(t => !string.IsNullOrEmpty(t)).ToArray();
+
+            // Adiciona padding no INÍCIO da sequência para formar as primeiras janelas de contexto
+            var paddedTokens = new List<string>();
+            for (int k = 0; k < currentContextWindowSize; k++)
             {
-                var cleanParagraph = paragraph.Replace("\n", " ").Trim();
-                if (cleanParagraph.Length < sequenceLength + 1) continue;
+                paddedTokens.Add(padToken);
+            }
+            paddedTokens.AddRange(tokens);
 
-                for (int i = 0; i < cleanParagraph.Length - sequenceLength; i++)
+            // O loop vai até o ponto em que ainda há tokens suficientes para uma janela completa + o token alvo.
+            for (int i = 0; i < paddedTokens.Count - currentContextWindowSize; i++)
+            {
+                string[] currentWindowTokens = paddedTokens.Skip(i).Take(currentContextWindowSize).ToArray();
+                string nextToken = paddedTokens[i + currentContextWindowSize];
+
+                if (!tokenToIndex.ContainsKey(nextToken) || !currentWindowTokens.All(t => tokenToIndex.ContainsKey(t)))
                 {
-                    string sequence = cleanParagraph.Substring(i, sequenceLength);
-                    char nextChar = cleanParagraph[i + sequenceLength];
-
-                    if (!charToIndex.ContainsKey(nextChar) || !sequence.All(c => charToIndex.ContainsKey(c))) continue;
-
-                    // Entrada: codifica one-hot o último caractere da sequência
-                    double[] inputData = new double[charToIndex.Count];
-                    inputData[charToIndex[sequence[sequenceLength - 1]]] = 1.0;
-                    inputs.Add(new Tensor(inputData, new int[] { charToIndex.Count }));
-
-                    // Alvo: codifica one-hot o próximo caractere
-                    double[] targetData = new double[charToIndex.Count];
-                    targetData[charToIndex[nextChar]] = 1.0;
-                    targets.Add(new Tensor(targetData, new int[] { charToIndex.Count }));
+                    Console.WriteLine($"Sequência ignorada no dataset (índice {i}): tokens ausentes no vocabulário. Próximo Token: '{nextToken}', Janela: '{string.Join(" ", currentWindowTokens)}'");
+                    continue;
                 }
+
+                // Cria o tensor de entrada como uma concatenação de one-hot vectors
+                double[] inputData = new double[tokenToIndex.Count * currentContextWindowSize];
+                for (int k = 0; k < currentContextWindowSize; k++)
+                {
+                    int tokenVocabIndex = tokenToIndex[currentWindowTokens[k]];
+                    int offset = k * tokenToIndex.Count;
+                    inputData[offset + tokenVocabIndex] = 1.0;
+                }
+                inputs.Add(new Tensor(inputData, new int[] { tokenToIndex.Count * currentContextWindowSize }));
+
+                double[] targetData = new double[tokenToIndex.Count];
+                targetData[tokenToIndex[nextToken]] = 1.0;
+                targets.Add(new Tensor(targetData, new int[] { tokenToIndex.Count }));
             }
 
             return (inputs.ToArray(), targets.ToArray());
         }
 
-        private Tensor TextToTensor(string text)
+        // Novo método para tokenizar texto e preencher janela para geração
+        private List<string> TokenizeTextForWindow(string text)
         {
-            double[] inputData = new double[charToIndex.Count];
-            if (text.Length > 0 && charToIndex.ContainsKey(text[text.Length - 1]))
+            var specialChars = new[] { '.', ',', '!', '?', ':', ';', '"', '\'', '-', '(', ')' };
+            var specialCharPattern = string.Join("|", specialChars.Select(c => Regex.Escape(c.ToString())));
+            var pattern = $@"(\p{{L}}+|\p{{N}}+|{specialCharPattern})";
+            var matches = Regex.Matches(text.ToLower(), pattern);
+            var tokens = matches.Select(m => m.Value).Where(t => !string.IsNullOrEmpty(t)).ToList();
+
+            // Substitui tokens fora do vocabulário por [PAD]
+            for (int i = 0; i < tokens.Count; i++)
             {
-                inputData[charToIndex[text[text.Length - 1]]] = 1.0;
+                if (!tokenToIndex.ContainsKey(tokens[i]))
+                {
+                    tokens[i] = padToken;
+                }
             }
-            return new Tensor(inputData, new int[] { charToIndex.Count });
+            return tokens;
         }
 
-        private Tensor CharToTensor(char c)
+        // Novo método para converter a lista de tokens da janela em um tensor de entrada
+        private Tensor ConvertWindowToInputTensor(List<string> windowTokens)
         {
-            double[] inputData = new double[charToIndex.Count];
-            inputData[charToIndex[c]] = 1.0;
-            return new Tensor(inputData, new int[] { charToIndex.Count });
+            double[] inputData = new double[tokenToIndex.Count * contextWindowSize];
+            for (int k = 0; k < contextWindowSize; k++)
+            {
+                string token = windowTokens[k];
+                int tokenVocabIndex = tokenToIndex.ContainsKey(token) ? tokenToIndex[token] : tokenToIndex[padToken];
+                int offset = k * tokenToIndex.Count;
+                inputData[offset + tokenVocabIndex] = 1.0;
+            }
+            return new Tensor(inputData, new int[] { tokenToIndex.Count * contextWindowSize });
         }
     }
 }
