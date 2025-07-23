@@ -12,7 +12,7 @@ public class Program
         var host = CreateHostBuilder(args).Build();
         
         var configuration = host.Services.GetRequiredService<IConfiguration>();
-        string modelDir = "/home/mplopes/Documentos/generative/generative/";
+        string modelDir = "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/";
 
         if (args.Length > 0 && args[0].Equals("--train", StringComparison.OrdinalIgnoreCase))
         {
@@ -66,7 +66,7 @@ public class Program
         {
             Console.WriteLine($"Iniciando modo de treinamento (época inicial: {startEpoch}, total de épocas: {totalEpochs}, janela de contexto: {contextWindowSize})...");
 
-            string datasetPath = "/home/mplopes/Documentos/generative/generative/output/code";
+            string datasetPath = "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/output/code";
             string modelPathTemplate = Path.Combine(modelDir, "model.json");
             string vocabPath = Path.Combine(modelDir, "vocab.txt");
             int hiddenSize = 256;

@@ -97,12 +97,12 @@ namespace Core
                     {
                         Console.WriteLine($"Falha ao carregar modelo da época {startEpoch - 1}. Inicializando novo modelo.");
                         // Input size agora é vocabSize * contextWindowSize
-                        model = new NeuralNetwork(tokenToIndex.Count * contextWindowSize, hiddenSize, tokenToIndex.Count);
+                        model = new NeuralNetwork(tokenToIndex.Count * contextWindowSize, hiddenSize, tokenToIndex.Count, contextWindowSize);
                     }
                     else if (model.InputSize != tokenToIndex.Count * contextWindowSize || model.OutputSize != tokenToIndex.Count)
                     {
                         Console.WriteLine($"Tamanho do vocabulário ({tokenToIndex.Count}) ou ContextWindowSize ({contextWindowSize}) não corresponde ao modelo carregado (Input: {model.InputSize}, Output: {model.OutputSize}). Inicializando novo modelo.");
-                        model = new NeuralNetwork(tokenToIndex.Count * contextWindowSize, hiddenSize, tokenToIndex.Count);
+                        model = new NeuralNetwork(tokenToIndex.Count * contextWindowSize, hiddenSize, tokenToIndex.Count, contextWindowSize);
                     }
                     else
                     {
@@ -113,7 +113,7 @@ namespace Core
                 {
                     Console.WriteLine("Nenhum modelo anterior encontrado ou iniciando do zero. Inicializando novo modelo.");
                     // Input size agora é vocabSize * contextWindowSize
-                    model = new NeuralNetwork(tokenToIndex.Count * contextWindowSize, hiddenSize, tokenToIndex.Count);
+                    model = new NeuralNetwork(tokenToIndex.Count * contextWindowSize, hiddenSize, tokenToIndex.Count, contextWindowSize);
                 }
 
                 if (model == null)

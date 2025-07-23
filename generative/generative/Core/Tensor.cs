@@ -65,5 +65,12 @@ namespace Core
             }
             return size;
         }
+
+        public void SetData(double[] newData)
+        {
+            if (newData == null || newData.Length != GetTotalSize())
+                throw new ArgumentException("New data size does not match tensor shape.");
+            Array.Copy(newData, data, newData.Length);
+        }
     }
 }

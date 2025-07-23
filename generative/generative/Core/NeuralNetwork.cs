@@ -123,7 +123,7 @@ public class NeuralNetwork
         // Processa cada passo de tempo
         for (int t = 0; t < contextWindowSize; t++)
         {
-            (h_t, c_t) = LSTMStep(inputSteps[t], h_t, c_t);
+            (h_t, c_t, _, _, _, _) = LSTMStep(inputSteps[t], h_t, c_t);
         }
 
         // Camada de saída
@@ -143,10 +143,11 @@ public class NeuralNetwork
         return new Tensor(outputData, new int[] { outputSize });
     }
 
-    private (Tensor h_t, Tensor c_t) LSTMStep(Tensor x_t, Tensor h_prev, Tensor c_prev)
+    private (Tensor h_t, Tensor c_t, Tensor i_t, Tensor f_t, Tensor c_tilde, Tensor o_t) LSTMStep(Tensor x_t, Tensor h_prev, Tensor c_prev)
     {
         double[] x_t_data = x_t.GetData();
         double[] h_prev_data = h_prev.GetData();
+        double[] c_prev_data = c_prev.GetData();
 
         // Porta de entrada
         double[] i_t_data = new double[hiddenSize];
@@ -204,7 +205,6 @@ public class NeuralNetwork
 
         // Estado da célula
         double[] c_t_data = new double[hiddenSize];
-        double[] c_prev_data = c_prev.GetData();
         for (int h = 0; h < hiddenSize; h++)
         {
             c_t_data[h] = f_t_data[h] * c_prev_data[h] + i_t_data[h] * c_tilde_data[h];
@@ -237,7 +237,7 @@ public class NeuralNetwork
         }
         Tensor h_t = new Tensor(h_t_data, new int[] { hiddenSize });
 
-        return (h_t, c_t);
+        return (h_t, c_t, i_t, f_t, c_tilde, o_t);
     }
 
     public Tensor Forward(Tensor input)
@@ -265,10 +265,10 @@ public class NeuralNetwork
     {
         double epochLoss = 0;
 
-        for (int i = 0; i < inputs.Length; i++)
+        for (int j = 0; j < inputs.Length; j++)
         {
             int vocabSize = inputSize / contextWindowSize;
-            double[] inputData = inputs[i].GetData();
+            double[] inputData = inputs[j].GetData();
             Tensor[] inputSteps = new Tensor[contextWindowSize];
             for (int t = 0; t < contextWindowSize; t++)
             {
@@ -291,21 +291,18 @@ public class NeuralNetwork
             for (int t = 0; t < contextWindowSize; t++)
             {
                 Tensor h_prev = t == 0 ? new Tensor(new double[hiddenSize], new int[] { hiddenSize }) : h_ts[t - 1];
-                (h_t, c_t) = LSTMStep(inputSteps[t], h_prev, c_t);
-                i_ts[t] = new Tensor(i_t_data ?? new double[hiddenSize], new int[] { hiddenSize });
-                f_ts[t] = new Tensor(f_t_data ?? new double[hiddenSize], new int[] { hiddenSize });
-                c_tildes[t] = new Tensor(c_tilde_data ?? new double[hiddenSize], new int[] { hiddenSize });
-                c_ts[t] = new Tensor(c_t.GetData(), new int[] { hiddenSize });
-                o_ts[t] = new Tensor(o_t_data ?? new double[hiddenSize], new int[] { hiddenSize });
+                Tensor c_prev = t == 0 ? new Tensor(new double[hiddenSize], new int[] { hiddenSize }) : c_ts[t - 1];
+                (h_t, c_t, i_ts[t], f_ts[t], c_tildes[t], o_ts[t]) = LSTMStep(inputSteps[t], h_prev, c_prev);
                 h_ts[t] = new Tensor(h_t.GetData(), new int[] { hiddenSize });
-                c_prevs[t] = new Tensor(c_t.GetData(), new int[] { hiddenSize });
+                c_ts[t] = new Tensor(c_t.GetData(), new int[] { hiddenSize });
+                c_prevs[t] = new Tensor(c_prev.GetData(), new int[] { hiddenSize });
             }
 
             // Camada de saída
-            Tensor output = Forward(inputs[i]);
+            Tensor output = Forward(inputs[j]);
             for (int o = 0; o < outputSize; o++)
             {
-                if (targets[i].Infer(new int[] { o }) == 1.0)
+                if (targets[j].Infer(new int[] { o }) == 1.0)
                 {
                     double outputValue = output.Infer(new int[] { o });
                     epochLoss += -Math.Log(outputValue + 1e-9);
@@ -317,7 +314,7 @@ public class NeuralNetwork
             double[] grad_output = new double[outputSize];
             for (int o = 0; o < outputSize; o++)
             {
-                grad_output[o] = output.Infer(new int[] { o }) - targets[i].Infer(new int[] { o });
+                grad_output[o] = output.Infer(new int[] { o }) - targets[j].Infer(new int[] { o });
             }
 
             double[] grad_W_out = new double[hiddenSize * outputSize];
@@ -373,7 +370,7 @@ public class NeuralNetwork
                     grad_o_ts[t][h] = grad_h_t[h] * Tanh(c_ts[t].Infer(new int[] { h })) * SigmoidDerivative(o_ts[t].Infer(new int[] { h }));
                     grad_c_tildes[t][h] = grad_c_t[h] * i_ts[t].Infer(new int[] { h }) * TanhDerivative(c_tildes[t].Infer(new int[] { h }));
                     grad_i_ts[t][h] = grad_c_t[h] * c_tildes[t].Infer(new int[] { h }) * SigmoidDerivative(i_ts[t].Infer(new int[] { h }));
-                    grad_f_ts[t][h] = grad_c_t[h] * (t == 0 ? 0 : c_prevs[t - 1].Infer(new int[] { h })) * SigmoidDerivative(f_ts[t].Infer(new int[] { h }));
+                    grad_f_ts[t][h] = grad_c_t[h] * c_prevs[t].Infer(new int[] { h }) * SigmoidDerivative(f_ts[t].Infer(new int[] { h }));
                 }
 
                 grad_c_next = grad_c_t;
@@ -400,10 +397,10 @@ public class NeuralNetwork
                 {
                     for (int i = 0; i < inputSteps[t].shape[0]; i++)
                     {
-                        grad_W_i[i * hiddenSize + h] += grad_i_ts[t][h] * input_t_data[i];
-                        grad_W_f[i * hiddenSize + h] += grad_f_ts[t][h] * input_t_data[i];
-                        grad_W_c[i * hiddenSize + h] += grad_c_tildes[t][h] * input_t_data[i];
-                        grad_W_o[i * hiddenSize + h] += grad_o_ts[t][h] * input_t_data[i];
+                        grad_W_i[i * hiddenSize + h] += grad_i_ts[t][h] * input_t_data[j];
+                        grad_W_f[i * hiddenSize + h] += grad_f_ts[t][h] * input_t_data[j];
+                        grad_W_c[i * hiddenSize + h] += grad_c_tildes[t][h] * input_t_data[j];
+                        grad_W_o[i * hiddenSize + h] += grad_o_ts[t][h] * input_t_data[j];
                     }
                     for (int h_prev = 0; h_prev < hiddenSize; h_prev++)
                     {
@@ -447,9 +444,7 @@ public class NeuralNetwork
         {
             updatedData[i] = data[i] - learningRate * grad[i];
         }
-        // Criar um novo tensor com os dados atualizados
-        typeof(Tensor).GetField("data", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-            ?.SetValue(tensor, updatedData);
+        tensor.SetData(updatedData);
     }
 
     public void SaveModel(string filePath)
@@ -461,8 +456,18 @@ public class NeuralNetwork
                 InputSize = inputSize,
                 HiddenSize = hiddenSize,
                 OutputSize = outputSize,
-                WeightsHidden = new TensorData { data = W_i.GetData(), shape = W_i.GetShape() },
-                BiasHidden = new TensorData { data = b_i.GetData(), shape = b_i.GetShape() },
+                WeightsInputGate = new TensorData { data = W_i.GetData(), shape = W_i.GetShape() },
+                RecurrentWeightsInputGate = new TensorData { data = U_i.GetData(), shape = U_i.GetShape() },
+                BiasInputGate = new TensorData { data = b_i.GetData(), shape = b_i.GetShape() },
+                WeightsForgetGate = new TensorData { data = W_f.GetData(), shape = W_f.GetShape() },
+                RecurrentWeightsForgetGate = new TensorData { data = U_f.GetData(), shape = U_f.GetShape() },
+                BiasForgetGate = new TensorData { data = b_f.GetData(), shape = b_f.GetShape() },
+                WeightsCellGate = new TensorData { data = W_c.GetData(), shape = W_c.GetShape() },
+                RecurrentWeightsCellGate = new TensorData { data = U_c.GetData(), shape = U_c.GetShape() },
+                BiasCellGate = new TensorData { data = b_c.GetData(), shape = b_c.GetShape() },
+                WeightsOutputGate = new TensorData { data = W_o.GetData(), shape = W_o.GetShape() },
+                RecurrentWeightsOutputGate = new TensorData { data = U_o.GetData(), shape = U_o.GetShape() },
+                BiasOutputGate = new TensorData { data = b_o.GetData(), shape = b_o.GetShape() },
                 WeightsOutput = new TensorData { data = W_out.GetData(), shape = W_out.GetShape() },
                 BiasOutput = new TensorData { data = b_out.GetData(), shape = b_out.GetShape() }
             };
@@ -494,30 +499,30 @@ public class NeuralNetwork
 
             string jsonString = File.ReadAllText(filePath);
             var modelData = JsonSerializer.Deserialize<NeuralNetworkModelData>(jsonString);
-            if (modelData == null || modelData.WeightsHidden?.data == null || modelData.BiasHidden?.data == null ||
+            if (modelData == null || 
+                modelData.WeightsInputGate?.data == null || modelData.RecurrentWeightsInputGate?.data == null || modelData.BiasInputGate?.data == null ||
+                modelData.WeightsForgetGate?.data == null || modelData.RecurrentWeightsForgetGate?.data == null || modelData.BiasForgetGate?.data == null ||
+                modelData.WeightsCellGate?.data == null || modelData.RecurrentWeightsCellGate?.data == null || modelData.BiasCellGate?.data == null ||
+                modelData.WeightsOutputGate?.data == null || modelData.RecurrentWeightsOutputGate?.data == null || modelData.BiasOutputGate?.data == null ||
                 modelData.WeightsOutput?.data == null || modelData.BiasOutput?.data == null)
             {
                 throw new Exception("Dados do modelo JSON estão incompletos.");
             }
 
-            // Para compatibilidade, usamos apenas W_i, b_i, W_out, b_out e inicializamos os outros com valores padrão
-            Tensor W_i = new Tensor(modelData.WeightsHidden.data, modelData.WeightsHidden.shape);
-            Tensor b_i = new Tensor(modelData.BiasHidden.data, modelData.BiasHidden.shape);
+            Tensor W_i = new Tensor(modelData.WeightsInputGate.data, modelData.WeightsInputGate.shape);
+            Tensor U_i = new Tensor(modelData.RecurrentWeightsInputGate.data, modelData.RecurrentWeightsInputGate.shape);
+            Tensor b_i = new Tensor(modelData.BiasInputGate.data, modelData.BiasInputGate.shape);
+            Tensor W_f = new Tensor(modelData.WeightsForgetGate.data, modelData.WeightsForgetGate.shape);
+            Tensor U_f = new Tensor(modelData.RecurrentWeightsForgetGate.data, modelData.RecurrentWeightsForgetGate.shape);
+            Tensor b_f = new Tensor(modelData.BiasForgetGate.data, modelData.BiasForgetGate.shape);
+            Tensor W_c = new Tensor(modelData.WeightsCellGate.data, modelData.WeightsCellGate.shape);
+            Tensor U_c = new Tensor(modelData.RecurrentWeightsCellGate.data, modelData.RecurrentWeightsCellGate.shape);
+            Tensor b_c = new Tensor(modelData.BiasCellGate.data, modelData.BiasCellGate.shape);
+            Tensor W_o = new Tensor(modelData.WeightsOutputGate.data, modelData.WeightsOutputGate.shape);
+            Tensor U_o = new Tensor(modelData.RecurrentWeightsOutputGate.data, modelData.RecurrentWeightsOutputGate.shape);
+            Tensor b_o = new Tensor(modelData.BiasOutputGate.data, modelData.BiasOutputGate.shape);
             Tensor W_out = new Tensor(modelData.WeightsOutput.data, modelData.WeightsOutput.shape);
             Tensor b_out = new Tensor(modelData.BiasOutput.data, modelData.BiasOutput.shape);
-
-            Random rand = new Random();
-            double sqrtFanIn = Math.Sqrt(2.0 / (modelData.InputSize + modelData.HiddenSize));
-            Tensor U_i = new Tensor(InitializeWeights(modelData.HiddenSize, modelData.HiddenSize, sqrtFanIn, rand), new int[] { modelData.HiddenSize, modelData.HiddenSize });
-            Tensor W_f = new Tensor(InitializeWeights(modelData.InputSize, modelData.HiddenSize, sqrtFanIn, rand), new int[] { modelData.InputSize, modelData.HiddenSize });
-            Tensor U_f = new Tensor(InitializeWeights(modelData.HiddenSize, modelData.HiddenSize, sqrtFanIn, rand), new int[] { modelData.HiddenSize, modelData.HiddenSize });
-            Tensor b_f = new Tensor(new double[modelData.HiddenSize], new int[] { modelData.HiddenSize });
-            Tensor W_c = new Tensor(InitializeWeights(modelData.InputSize, modelData.HiddenSize, sqrtFanIn, rand), new int[] { modelData.InputSize, modelData.HiddenSize });
-            Tensor U_c = new Tensor(InitializeWeights(modelData.HiddenSize, modelData.HiddenSize, sqrtFanIn, rand), new int[] { modelData.HiddenSize, modelData.HiddenSize });
-            Tensor b_c = new Tensor(new double[modelData.HiddenSize], new int[] { modelData.HiddenSize });
-            Tensor W_o = new Tensor(InitializeWeights(modelData.InputSize, modelData.HiddenSize, sqrtFanIn, rand), new int[] { modelData.InputSize, modelData.HiddenSize });
-            Tensor U_o = new Tensor(InitializeWeights(modelData.HiddenSize, modelData.HiddenSize, sqrtFanIn, rand), new int[] { modelData.HiddenSize, modelData.HiddenSize });
-            Tensor b_o = new Tensor(new double[modelData.HiddenSize], new int[] { modelData.HiddenSize });
 
             return new NeuralNetwork(modelData.InputSize, modelData.HiddenSize, modelData.OutputSize, modelData.InputSize / modelData.OutputSize,
                 W_i, U_i, b_i, W_f, U_f, b_f, W_c, U_c, b_c, W_o, U_o, b_o, W_out, b_out);
