@@ -8,7 +8,7 @@ namespace Core
 {
     public class TensorData
     {
-        public double[]? data { get; set; }
-        public int[]? shape { get; set; }
+        public double[] data { get; set; }
+        public int[] shape { get; set; }
     }
 }

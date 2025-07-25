@@ -65,6 +65,27 @@ namespace Core
             }
             return size;
         }
+        
+        public Tensor Transpose()
+        {
+            if (shape.Length != 2)
+            {
+                throw new InvalidOperationException("Transposição é suportada apenas para tensores 2D (matrizes).");
+            }
+
+            int rows = shape[0];
+            int cols = shape[1];
+            double[] transposedData = new double[cols * rows];
+
+            for (int i = 0; i < rows; i++)
+            {
+                for (int j = 0; j < cols; j++)
+                {
+                    transposedData[j * rows + i] = data[i * cols + j];
+                }
+            }
+            return new Tensor(transposedData, new int[] { cols, rows });
+        }
 
         public void SetData(double[] newData)
         {
