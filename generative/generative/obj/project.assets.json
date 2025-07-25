@@ -2,6 +2,19 @@
   "version": 3,
   "targets": {
     "net8.0": {
+      "Cloo.clSharp/1.0.1": {
+        "type": "package",
+        "compile": {
+          "lib/netstandard2.0/Cloo.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/netstandard2.0/Cloo.dll": {
+            "related": ".xml"
+          }
+        }
+      },
       "Microsoft.AspNetCore.OpenApi/8.0.16": {
         "type": "package",
         "dependencies": {
@@ -111,6 +124,19 @@
     }
   },
   "libraries": {
+    "Cloo.clSharp/1.0.1": {
+      "sha512": "IobfnbM8xi2HjBN3lKYhomwwsp5Nk8MKNxT6Aag7A/0u/wuN6/ZwNh4AGMKZPutNwpa8UZfOJEoYWDB9Pr1jJg==",
+      "type": "package",
+      "path": "cloo.clsharp/1.0.1",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "cloo.clsharp.1.0.1.nupkg.sha512",
+        "cloo.clsharp.nuspec",
+        "lib/netstandard2.0/Cloo.dll",
+        "lib/netstandard2.0/Cloo.xml"
+      ]
+    },
     "Microsoft.AspNetCore.OpenApi/8.0.16": {
       "sha512": "jeZBYi62BKGRZXEkXAr9hj1L6u71HRKE7EPaZBouF1xmKdQIX7GO5oSRLTQLQmmST0y/aaI+Mr4OzyyRjmBFog==",
       "type": "package",
@@ -477,6 +503,7 @@
   },
   "projectFileDependencyGroups": {
     "net8.0": [
+      "Cloo.clSharp >= 1.0.1",
       "Microsoft.AspNetCore.OpenApi >= 8.0.16",
       "Swashbuckle.AspNetCore >= 6.6.2"
     ]
@@ -523,6 +550,10 @@
       "net8.0": {
         "targetAlias": "net8.0",
         "dependencies": {
+          "Cloo.clSharp": {
+            "target": "Package",
+            "version": "[1.0.1, )"
+          },
           "Microsoft.AspNetCore.OpenApi": {
             "target": "Package",
             "version": "[8.0.16, )"

@@ -1,9 +1,10 @@
 {
   "version": 2,
-  "dgSpecHash": "RSk109g1aHk=",
+  "dgSpecHash": "7g1wegw3S4w=",
   "success": true,
   "projectFilePath": "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/generative.csproj",
   "expectedPackageFiles": [
+    "/home/mplopes/.nuget/packages/cloo.clsharp/1.0.1/cloo.clsharp.1.0.1.nupkg.sha512",
     "/home/mplopes/.nuget/packages/microsoft.aspnetcore.openapi/8.0.16/microsoft.aspnetcore.openapi.8.0.16.nupkg.sha512",
     "/home/mplopes/.nuget/packages/microsoft.extensions.apidescription.server/6.0.5/microsoft.extensions.apidescription.server.6.0.5.nupkg.sha512",
     "/home/mplopes/.nuget/packages/microsoft.openapi/1.6.14/microsoft.openapi.1.6.14.nupkg.sha512",

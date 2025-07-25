@@ -70,7 +70,7 @@ public class Program
             string modelPathTemplate = Path.Combine(modelDir, "model.json");
             string vocabPath = Path.Combine(modelDir, "vocab.txt");
             int hiddenSize = 256;
-            double learningRate = 0.001;
+            double learningRate = 0.1;
             
             // Cria o diretório para os modelos, se não existir
             if (!Directory.Exists(modelDir))

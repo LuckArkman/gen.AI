@@ -8,6 +8,7 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <PackageReference Include="Cloo.clSharp" Version="1.0.1" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.16" />
         <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
     </ItemGroup>

@@ -509,20 +509,20 @@ public class NeuralNetwork
                 throw new Exception("Dados do modelo JSON estão incompletos.");
             }
 
-            Tensor W_i = new Tensor(modelData.WeightsInputGate.data, modelData.WeightsInputGate.shape);
-            Tensor U_i = new Tensor(modelData.RecurrentWeightsInputGate.data, modelData.RecurrentWeightsInputGate.shape);
-            Tensor b_i = new Tensor(modelData.BiasInputGate.data, modelData.BiasInputGate.shape);
-            Tensor W_f = new Tensor(modelData.WeightsForgetGate.data, modelData.WeightsForgetGate.shape);
-            Tensor U_f = new Tensor(modelData.RecurrentWeightsForgetGate.data, modelData.RecurrentWeightsForgetGate.shape);
-            Tensor b_f = new Tensor(modelData.BiasForgetGate.data, modelData.BiasForgetGate.shape);
-            Tensor W_c = new Tensor(modelData.WeightsCellGate.data, modelData.WeightsCellGate.shape);
-            Tensor U_c = new Tensor(modelData.RecurrentWeightsCellGate.data, modelData.RecurrentWeightsCellGate.shape);
-            Tensor b_c = new Tensor(modelData.BiasCellGate.data, modelData.BiasCellGate.shape);
-            Tensor W_o = new Tensor(modelData.WeightsOutputGate.data, modelData.WeightsOutputGate.shape);
-            Tensor U_o = new Tensor(modelData.RecurrentWeightsOutputGate.data, modelData.RecurrentWeightsOutputGate.shape);
-            Tensor b_o = new Tensor(modelData.BiasOutputGate.data, modelData.BiasOutputGate.shape);
-            Tensor W_out = new Tensor(modelData.WeightsOutput.data, modelData.WeightsOutput.shape);
-            Tensor b_out = new Tensor(modelData.BiasOutput.data, modelData.BiasOutput.shape);
+            Tensor? W_i = new Tensor(modelData.WeightsInputGate.data, modelData.WeightsInputGate.shape);
+            Tensor? U_i = new Tensor(modelData.RecurrentWeightsInputGate.data, modelData.RecurrentWeightsInputGate.shape);
+            Tensor? b_i = new Tensor(modelData.BiasInputGate.data, modelData.BiasInputGate.shape);
+            Tensor? W_f = new Tensor(modelData.WeightsForgetGate.data, modelData.WeightsForgetGate.shape);
+            Tensor? U_f = new Tensor(modelData.RecurrentWeightsForgetGate.data, modelData.RecurrentWeightsForgetGate.shape);
+            Tensor? b_f = new Tensor(modelData.BiasForgetGate.data, modelData.BiasForgetGate.shape);
+            Tensor? W_c = new Tensor(modelData.WeightsCellGate.data, modelData.WeightsCellGate.shape);
+            Tensor? U_c = new Tensor(modelData.RecurrentWeightsCellGate.data, modelData.RecurrentWeightsCellGate.shape);
+            Tensor? b_c = new Tensor(modelData.BiasCellGate.data, modelData.BiasCellGate.shape);
+            Tensor? W_o = new Tensor(modelData.WeightsOutputGate.data, modelData.WeightsOutputGate.shape);
+            Tensor? U_o = new Tensor(modelData.RecurrentWeightsOutputGate.data, modelData.RecurrentWeightsOutputGate.shape);
+            Tensor? b_o = new Tensor(modelData.BiasOutputGate.data, modelData.BiasOutputGate.shape);
+            Tensor? W_out = new Tensor(modelData.WeightsOutput.data, modelData.WeightsOutput.shape);
+            Tensor? b_out = new Tensor(modelData.BiasOutput.data, modelData.BiasOutput.shape);
 
             return new NeuralNetwork(modelData.InputSize, modelData.HiddenSize, modelData.OutputSize, modelData.InputSize / modelData.OutputSize,
                 W_i, U_i, b_i, W_f, U_f, b_f, W_c, U_c, b_c, W_o, U_o, b_o, W_out, b_out);

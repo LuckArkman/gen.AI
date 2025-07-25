@@ -244,8 +244,12 @@ namespace GenerativeAIAPI.Controllers
         }
 
         [HttpPost("generate")]
-        private string Generate(string seedText, int contextWindowSize, int length, double temperature)
+        public string Generate([FromBody] GenerateRequest _generateRequest)
         {
+            string seedText = _generateRequest.SeedText;
+            int contextWindowSize = _generateRequest.ContextWindowSize;
+            int? length = _generateRequest.Length;
+            double temperature = _generateRequest.Temperature;
             if (model == null || tokenToIndex.Count == 0)
                 throw new InvalidOperationException("Modelo ou vocabulário não inicializados.");
 

@@ -18,10 +18,12 @@ namespace Core
         private readonly double learningRate;
         private readonly int epochs;
         private readonly string padToken = "[PAD]";
+        private readonly string logPath = "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/";
 
         public Trainer(string datasetPath, string modelPathTemplate, string vocabPath,
             int hiddenSize = 256, int sequenceLength = 10, double learningRate = 0.01, int epochs = 10)
         {
+            this.logPath = Path.Combine(Path.GetDirectoryName(datasetPath), "training_log.txt"); // Arquivo de log no mesmo diretório
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
             if (string.IsNullOrEmpty(datasetPath))
@@ -87,15 +89,14 @@ namespace Core
                 }
 
                 // Ajusta modelPath para carregar a última época treinada se startEpoch > 1
-                string modelToLoadPath = modelPathTemplate.Replace("{epoch}", (startEpoch - 1).ToString());
-                
-                if (startEpoch > 1 && File.Exists(modelToLoadPath))
+                Console.WriteLine(modelPathTemplate);
+                if (File.Exists(modelPathTemplate))
                 {
-                    Console.WriteLine($"Tentando carregar modelo da época {startEpoch - 1} de: {modelToLoadPath}...");
-                    model = NeuralNetwork.LoadModel(modelToLoadPath);
+                    Console.WriteLine($"Tentando carregar modelo para retornar o treinamento...");
+                    model = NeuralNetwork.LoadModel(modelPathTemplate);
                     if (model == null)
                     {
-                        Console.WriteLine($"Falha ao carregar modelo da época {startEpoch - 1}. Inicializando novo modelo.");
+                        Console.WriteLine($"Falha ao carregar modelo previo. Inicializando novo modelo.");
                         // Input size agora é vocabSize * contextWindowSize
                         model = new NeuralNetwork(tokenToIndex.Count * contextWindowSize, hiddenSize, tokenToIndex.Count, contextWindowSize);
                     }
@@ -106,7 +107,7 @@ namespace Core
                     }
                     else
                     {
-                         Console.WriteLine($"Modelo da época {startEpoch - 1} carregado com sucesso.");
+                         Console.WriteLine($"Modelo Previo carregado com sucesso.");
                     }
                 }
                 else
@@ -141,7 +142,7 @@ namespace Core
                             }
 
                             chunkCount++;
-                            ProcessChunk(line, ref totalLoss, chunkCount); 
+                            ProcessChunk(line, ref totalLoss, chunkCount, epoch); 
                             GC.Collect(); 
                         }
                     }
@@ -282,7 +283,6 @@ namespace Core
                     Console.WriteLine($"Falha ao carregar o modelo de: {modelPath}.");
                     return false;
                 }
-
                 // Crucialmente, verifica se as dimensões do modelo carregado correspondem ao vocabulário e à janela de contexto
                 if (model.InputSize != tokenToIndex.Count * contextWindowSize || model.OutputSize != tokenToIndex.Count)
                 {
@@ -364,7 +364,7 @@ namespace Core
             }
         }
 
-        private void ProcessChunk(string chunkText, ref double totalLoss, int chunkIndex)
+        private void ProcessChunk(string chunkText, ref double totalLoss, int chunkIndex, int epoch)
         {
             if (string.IsNullOrEmpty(chunkText))
             {
@@ -394,7 +394,11 @@ namespace Core
 
             double chunkLoss = model.TrainEpoch(inputs, targets, learningRate);
             totalLoss += chunkLoss;
-            Console.WriteLine($"Chunk {chunkIndex} processado, Perda: {chunkLoss:F4}");
+            //Console.WriteLine($"Chunk {chunkIndex} processado, Perda: {chunkLoss:F4}");
+            // Log no console e no arquivo
+            string logMessage = $"Época {epoch}/{epochs}, Chunk {chunkIndex} processado, Perda: {chunkLoss:F4}";
+            Console.WriteLine(logMessage);
+            File.AppendAllText(logPath, logMessage + "\n");
         }
 
         private (Tensor[] inputs, Tensor[] targets) PrepareDataset(string chunkText)
