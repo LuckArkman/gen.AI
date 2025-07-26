@@ -19,6 +19,7 @@ public class Program
             int totalEpochs = 100; // Padrão
             int startEpoch = 1;   // Padrão
             int contextWindowSize = 10; // Padrão
+            int chunkSize = 1000; // Padrão para o tamanho do chunk
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -36,12 +37,18 @@ public class Program
                         startEpoch = Math.Max(1, value);
                     }
                 }
-                // Novo argumento para ContextWindowSize
                 else if (args[i].Equals("--window-size", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
                 {
                     if (int.TryParse(args[i+1], out int value))
                     {
                         contextWindowSize = Math.Max(1, value);
+                    }
+                }
+                else if (args[i].Equals("--chunk-size", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+                {
+                    if (int.TryParse(args[i+1], out int value))
+                    {
+                        chunkSize = Math.Max(1, value);
                     }
                 }
             }
@@ -52,7 +59,7 @@ public class Program
                 startEpoch = 1;
             }
 
-            RunTraining(startEpoch, totalEpochs, contextWindowSize, modelDir); // Passa contextWindowSize
+            RunTraining(startEpoch, totalEpochs, contextWindowSize, modelDir, chunkSize);
         }
         else
         {
@@ -60,11 +67,11 @@ public class Program
         }
     }
 
-    private static void RunTraining(int startEpoch, int totalEpochs, int contextWindowSize, string modelDir) // Adicionado contextWindowSize
+    private static void RunTraining(int startEpoch, int totalEpochs, int contextWindowSize, string modelDir, int chunkSize)
     {
         try
         {
-            Console.WriteLine($"Iniciando modo de treinamento (época inicial: {startEpoch}, total de épocas: {totalEpochs}, janela de contexto: {contextWindowSize})...");
+            Console.WriteLine($"Iniciando modo de treinamento (época inicial: {startEpoch}, total de épocas: {totalEpochs}, janela de contexto: {contextWindowSize}, tamanho do chunk: {chunkSize})...");
 
             string datasetPath = "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/output/code";
             string modelPathTemplate = Path.Combine(modelDir, "model.json");
@@ -72,25 +79,23 @@ public class Program
             int hiddenSize = 256;
             double learningRate = 0.1;
             
-            // Cria o diretório para os modelos, se não existir
             if (!Directory.Exists(modelDir))
             {
                 Directory.CreateDirectory(modelDir);
                 Console.WriteLine($"Diretório criado: {modelDir}");
             }
 
-            // Inicializa o treinador, passando o ContextWindowSize
             var trainer = new Trainer(
                 datasetPath: datasetPath,
                 modelPathTemplate: modelPathTemplate,
                 vocabPath: vocabPath,
                 hiddenSize: hiddenSize,
-                sequenceLength: contextWindowSize, // Passa contextWindowSize para sequenceLength do Trainer
+                sequenceLength: contextWindowSize,
                 learningRate: learningRate,
                 epochs: totalEpochs
             );
 
-            trainer.Train(startEpoch);
+            trainer.Train(startEpoch, chunkSize);
 
             Console.WriteLine("Treinamento concluído com sucesso.");
         }
