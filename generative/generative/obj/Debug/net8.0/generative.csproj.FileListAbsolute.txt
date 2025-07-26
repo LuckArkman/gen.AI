@@ -120,4 +120,3 @@
 /home/mplopes/Documentos/GitHub/gen.AI/generative/generative/obj/Debug/net8.0/generative.genruntimeconfig.cache
 /home/mplopes/Documentos/GitHub/gen.AI/generative/generative/obj/Debug/net8.0/ref/generative.dll
 /home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/Cloo.dll
-/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/model.json
