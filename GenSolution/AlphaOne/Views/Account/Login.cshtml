@@ -1,0 +1,58 @@
+@model AlphaOne.Controllers.AccountController.LoginViewModel
+
+@{
+    ViewData["Title"] = "AlphaOne";
+    Layout = "_LayoutAuth"; // Usar o layout de autenticação
+}
+
+<div class="auth-card">
+    <div class="auth-header">
+        <div class="auth-logo">D</div> 
+        <h3>Let's Get Started AlphaOne</h3>
+        <p>Sign in to continue to AlphaOne.</p>
+        <div class="auth-tabs">
+            <a href="#" class="auth-tab-link active">Log In</a>
+            <a asp-controller="Account" asp-action="Register" class="auth-tab-link">Register</a>
+        </div>
+    </div>
+    <div class="auth-body">
+        <form asp-controller="Account" asp-action="Login" asp-route-returnurl="@ViewData["ReturnUrl"]" method="post">
+            <div asp-validation-summary="ModelOnly" class="validation-summary-errors" role="alert"></div>
+            <div class="form-group">
+                <label asp-for="UsernameOrEmail">Username or Email</label>
+                <input asp-for="UsernameOrEmail" class="form-control" autocomplete="username" aria-required="true" placeholder="Enter username or email" />
+                <span asp-validation-for="UsernameOrEmail" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="Password">Password</label>
+                <input asp-for="Password" class="form-control" autocomplete="current-password" aria-required="true" placeholder="Enter password" />
+                <span asp-validation-for="Password" class="text-danger"></span>
+            </div>
+            <div class="form-check d-flex justify-content-between align-items-center mb-3">
+                <div>
+                    <input class="form-check-input" asp-for="RememberMe" type="checkbox" />
+                    <label class="form-check-label" asp-for="RememberMe">Remember me</label>
+                </div>
+                <div>
+                    <a id="forgot-password" href="#" class="auth-link forgot-password-link">Forgot password?</a> 
+                </div>
+            </div>
+            <div>
+                <button id="login-submit" type="submit" class="auth-button">Log In <i class="material-icons">arrow_forward</i></button>
+            </div>
+            <div class="divider">Or Login With</div>
+            <div class="social-login-buttons">
+                <button type="button" class="social-login-button"><span class="social-icon fab fa-facebook"></span>Facebook</button>
+                <button type="button" class="social-login-button"><span class="social-icon fab fa-twitter"></span>Twitter</button>
+                <button type="button" class="social-login-button"><span class="social-icon fab fa-google"></span>Google</button>
+            </div>
+            <p class="text-center auth-footer-text mt-3">
+                Don't have an account? <a asp-controller="Account" asp-action="Register" class="auth-link">Free Register</a>
+            </p>
+        </form>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

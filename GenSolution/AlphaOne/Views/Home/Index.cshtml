@@ -1,0 +1,252 @@
+﻿@model dynamic
+
+@{
+    ViewData["Title"] = "AlphaOne - Chat";
+    var apiBaseUrl = ViewBag.ApiBaseUrl;
+    Layout = "_Layout";
+}
+
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"]</title>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/GenerativeAIWebApp.styles.css" asp-append-version="true" />
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+</head>
+<body class="chat-layout"> @* Classe para estilização de layout de chat *@
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <span class="logo alpha-one-logo"></span> AlphaOne <i class="material-icons expand-icon">expand_more</i>
+            </div>
+            <button class="new-chat-button" id="new-chat-button">
+                <i class="material-icons">add</i> Novo chat
+            </button>
+            <div class="search-chat">
+                <i class="material-icons">search</i> Buscar em chats
+            </div>
+            <div class="chats-section">
+                <h3>Chats</h3>
+                <ul id="chat-history">
+                    <li class="active new-chat-placeholder" data-conversation-id="">New chat</li>
+                </ul>
+            </div>
+            <div class="user-profile">
+                <span class="user-info-text">User: @User.Identity!.Name</span>
+                <span class="user-info-text">Avatar</span> @* Placeholder para Avatar * @
+                <span class="user-status-text">Grátis</span>
+                <a asp-controller="Account" asp-action="Logout" class="logout-link">Sair</a> @* Link de Logout *@
+            </div>
+        </aside>
+
+        <main class="chat-area">
+            <header class="chat-header">
+                <span class="chat-title" id="current-chat-title">AlphaOne</span> <i class="material-icons expand-icon">expand_more</i>
+                <div class="header-actions">
+                    <i class="material-icons">share</i> Compartilhar
+                    <i class="material-icons">more_vert</i>
+                </div>
+            </header>
+            <div class="messages-container" id="messages-container">
+                <div class="initial-message">
+                    <p>Olá! Como posso ajudar hoje?</p>
+                </div>
+            </div>
+            <footer class="chat-input-area">
+                <div class="input-wrapper">
+                    <input type="text" id="user-input" placeholder="Pergunte alguma coisa" />
+                    <button id="send-button" class="send-button">
+                        <i class="material-icons">arrow_upward</i>
+                    </button>
+                    <button class="microphone-button">
+                        <i class="material-icons">mic</i>
+                    </button>
+                </div>
+                <p class="disclaimer">
+                    O AlphaOne pode cometer erros. Considere verificar informações importantes.
+                </p>
+            </footer>
+        </main>
+    </div>
+
+    <script src="~/lib/jquery/dist/jquery.min.js"></script>
+    <script src="~/js/site.js" asp-append-version="true"></script>
+
+    <script>
+        const chatApiBaseUrl = "/api/chat"; // URL base para o ChatController (action endpoints)
+        let currentConversationId = null; 
+        const messagesContainer = document.getElementById('messages-container');
+        const userInput = document.getElementById('user-input');
+        const sendButton = document.getElementById('send-button');
+        const chatHistoryList = document.getElementById('chat-history');
+        const newChatButton = document.getElementById('new-chat-button');
+        const currentChatTitle = document.getElementById('current-chat-title');
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadChatHistory();
+
+            sendButton.addEventListener('click', sendMessage);
+            userInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    sendMessage();
+                }
+            });
+            newChatButton.addEventListener('click', startNewChat);
+        });
+
+        function appendMessage(text, sender) {
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('message', `${sender}-message`);
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.classList.add('message-content');
+            contentDiv.textContent = text;
+            messageDiv.appendChild(contentDiv);
+
+            if (sender === 'ai') {
+                const actionsDiv = document.createElement('div');
+                actionsDiv.classList.add('message-actions');
+                actionsDiv.innerHTML = 
+                    <i class="fa-regular fa-thumbs-up"></i>
+                    <i class="fa-regular fa-thumbs-down"></i>
+                    <i class="material-icons">volume_up</i>
+                    <i class="material-icons">edit</i>
+                    <i class="material-icons">refresh</i>
+                ;
+                messageDiv.appendChild(actionsDiv);
+            }
+
+            messagesContainer.appendChild(messageDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight; 
+        }
+
+        function clearMessages() {
+            messagesContainer.innerHTML = `<div class="initial-message"><p>Olá! Como posso ajudar hoje?</p></div>`;
+        }
+
+        async function sendMessage() {
+            const message = userInput.value.trim();
+            if (!message) return;
+
+            appendMessage(message, 'user');
+            userInput.value = '';
+            
+            try {
+                const response = await fetch(`${chatApiBaseUrl}/GenerateAndSave`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        seedText: message,
+                        conversationId: currentConversationId, 
+                        length: 100,
+                        temperature: 0.7,
+                        contextWindowSize: 10
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.Error || 'Erro na requisição');
+                }
+
+                const result = await response.json();
+                appendMessage(result.aiResponse, 'ai');
+
+                if (!currentConversationId) {
+                    currentConversationId = result.conversationId;
+                    loadChatHistory(); 
+                }
+            } catch (error) {
+                console.error('Erro ao chamar a API:', error);
+                appendMessage(`Erro: ${error.message}`, 'error');
+            }
+        }
+
+        async function loadChatHistory() {
+            try {
+                const response = await fetch(`${chatApiBaseUrl}/GetConversations`);
+                if (!response.ok) {
+                    throw new Error('Erro ao carregar histórico de conversas.');
+                }
+                const conversations = await response.json();
+                
+                chatHistoryList.innerHTML = ''; 
+
+                const newChatPlaceholder = document.createElement('li');
+                newChatPlaceholder.classList.add('active', 'new-chat-placeholder');
+                newChatPlaceholder.textContent = 'New chat';
+                newChatPlaceholder.dataset.conversationId = ''; 
+                newChatPlaceholder.addEventListener('click', startNewChat);
+                chatHistoryList.appendChild(newChatPlaceholder);
+
+                conversations.forEach(conv => {
+                    const li = document.createElement('li');
+                    li.textContent = conv.title;
+                    li.dataset.conversationId = conv.id;
+                    li.addEventListener('click', () => loadConversation(conv.id, conv.title));
+                    chatHistoryList.appendChild(li);
+                });
+
+                if (currentConversationId) {
+                    highlightActiveChat(currentConversationId);
+                } else {
+                    highlightActiveChat(''); 
+                }
+
+            } catch (error) {
+                console.error('Erro ao carregar histórico:', error);
+            }
+        }
+
+        async function loadConversation(id, title) {
+            if (currentConversationId === id) return; 
+
+            currentConversationId = id;
+            currentChatTitle.textContent = title;
+            clearMessages(); 
+
+            try {
+                const response = await fetch(`${chatApiBaseUrl}/GetConversation/${id}`);
+                if (!response.ok) {
+                    throw new Error('Erro ao carregar conversa específica.');
+                }
+                const conversation = await response.json();
+                
+                conversation.messages.forEach(msg => {
+                    appendMessage(msg.text, msg.sender);
+                });
+
+                highlightActiveChat(id);
+
+            } catch (error) {
+                console.error('Erro ao carregar conversa:', error);
+                appendMessage(`Erro ao carregar conversa: ${error.message}`, 'error');
+            }
+        }
+
+        function startNewChat() {
+            currentConversationId = null;
+            currentChatTitle.textContent = 'New chat';
+            clearMessages();
+            highlightActiveChat('');
+            userInput.focus();
+        }
+
+        function highlightActiveChat(conversationId) {
+            chatHistoryList.querySelectorAll('li').forEach(li => {
+                li.classList.remove('active');
+            });
+            const activeLi = chatHistoryList.querySelector(`li[data-conversation-id="${conversationId}"]`);
+            if (activeLi) {
+                activeLi.classList.add('active');
+            }
+        }
+    </script>
+</body>
+</html>
