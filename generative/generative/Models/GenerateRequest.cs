@@ -3,15 +3,8 @@ namespace Models;
 public class GenerateRequest
 {
     public string? SeedText { get; set; }
+    public int SequenceLength { get; set; } = 10; // Renomeado para ContextWindowSize
     public int? Length { get; set; }
-    public double Temperature { get; set; }
-    public int ContextWindowSize { get; set; } 
-    public GenerateRequest(){}
-    public GenerateRequest(string seedText,  int? length, double temperature, int contextWindowSize)
-    {
-        SeedText = seedText;
-        Length = length;
-        Temperature = temperature;
-        ContextWindowSize = contextWindowSize;
-    }
+    public double Temperature { get; set; } = 1.0;
+    public int ContextWindowSize { get; set; } = 10; // Novo, ou renomeado de SequenceLength
 }

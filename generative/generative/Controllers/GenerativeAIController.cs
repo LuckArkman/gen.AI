@@ -8,6 +8,10 @@ using System.IO;
 using System.Collections.Generic;
 using System;
 using System.Linq;
+using System.Text.Json;
+using BinaryTreeSwapFile;
+using Services;
+using Services; // CORRIGIDO: Namespace correto para seus serviços customizados
 
 namespace GenerativeAIAPI.Controllers
 {
@@ -15,7 +19,7 @@ namespace GenerativeAIAPI.Controllers
     [Route("api/[controller]")]
     public class GenerativeAIController : ControllerBase
     {
-        private readonly string modelDir;
+        private readonly string modelDir; // Agora readonly
         private readonly string modelPath;
         private readonly string vocabPath;
         private NeuralNetwork? model;
@@ -24,10 +28,35 @@ namespace GenerativeAIAPI.Controllers
         private const int HiddenSize = 256;
         private readonly string padToken = "[PAD]";
         private readonly int contextWindowSize;
+        private BinaryTreeFileStorage _memoryStorage;
+        private readonly TextProcessorService _textProcessorService;
+        private readonly string _memoryFilePath;
+        private readonly ContextManager _contextManager;
+        // private readonly ChatGPTService _chatGPTService; // REMOVIDO: Gerenciado por KnowledgeAcquisitionService
+        private readonly KnowledgeAcquisitionService _knowledgeAcquisitionService;
+        // private readonly GenerateRequest _generateRequest; // REMOVIDO: Usar o parâmetro 'request' do método Generate
 
-        public GenerativeAIController(IConfiguration configuration)
+        private const double KnowledgeInternalizationLearningRate = 0.00001;
+
+        public GenerativeAIController(IConfiguration configuration,
+            ContextManager contextManager,
+            TextProcessorService textProcessorService,
+            KnowledgeAcquisitionService knowledgeAcquisitionService)
         {
-            modelDir = "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/";
+            modelDir = configuration["ModelSettings:ModelDirectory"] ?? "/home/mplopes/Documentos/generative/generative/"; // CORRIGIDO: Inicializa modelDir primeiro
+
+            _contextManager = contextManager;
+            _textProcessorService = textProcessorService;
+            _knowledgeAcquisitionService = knowledgeAcquisitionService;
+
+            _memoryFilePath = configuration["ModelSettings:MemoryFilePath"] ?? Path.Combine(modelDir, "AIModelMem.dat");
+            _memoryStorage = new BinaryTreeFileStorage(_memoryFilePath);
+            if (!System.IO.File.Exists(_memoryFilePath) ||
+                new FileInfo(_memoryFilePath).Length < sizeof(long) + TreeNode.NodeSize)
+            {
+                Console.WriteLine("Arquivo de memória virtual não encontrado ou vazio. Gerando árvore vazia...");
+                _memoryStorage.GenerateEmptyTree();
+            }
 
             if (!Directory.Exists(modelDir))
             {
@@ -36,7 +65,7 @@ namespace GenerativeAIAPI.Controllers
 
             contextWindowSize = configuration.GetValue<int>("ModelSettings:ContextWindowSize", 10);
 
-            modelPath = Path.Combine(modelDir, "model.json");
+            modelPath = Path.Combine(modelDir, $"model.json");
             vocabPath = Path.Combine(modelDir, "vocab.txt");
 
             tokenToIndex = new Dictionary<string, int>();
@@ -73,6 +102,28 @@ namespace GenerativeAIAPI.Controllers
                 Console.WriteLine(
                     "Modelo ou vocabulário não encontrados na inicialização do controlador. Treine o modelo primeiro.");
             }
+        }
+
+        private double InternalizeKnowledgeIntoModel(string knowledgeText)
+        {
+            if (model == null || tokenToIndex.Count == 0)
+            {
+                Console.WriteLine("Modelo ou vocabulário não inicializados para internalizar conhecimento.");
+                return 0;
+            }
+
+            var (inputs, targets) = PrepareDataset(knowledgeText, contextWindowSize);
+            if (inputs.Length == 0)
+            {
+                Console.WriteLine("Dados de conhecimento insuficientes para internalização.");
+                return 0;
+            }
+
+            Console.WriteLine($"Internalizando {inputs.Length} sequências de conhecimento no modelo...");
+            double loss = model.TrainEpoch(inputs, targets, KnowledgeInternalizationLearningRate);
+            Console.WriteLine($"Perda na internalização de conhecimento: {loss:F4}");
+            model.SaveModel(modelPath);
+            return loss;
         }
 
         private bool IsValidText(string? text)
@@ -135,8 +186,7 @@ namespace GenerativeAIAPI.Controllers
                 {
                     Console.WriteLine(
                         $"Inicializando novo modelo com VocabSize: {vocabSize}, ContextWindowSize: {requestContextWindowSize}");
-                    model = new NeuralNetwork(vocabSize * requestContextWindowSize, HiddenSize, vocabSize,
-                        requestContextWindowSize);
+                    model = new NeuralNetwork(vocabSize * requestContextWindowSize, HiddenSize, vocabSize, requestContextWindowSize);
                 }
 
                 var (inputs, targets) = PrepareDataset(request.TextData, requestContextWindowSize);
@@ -244,101 +294,419 @@ namespace GenerativeAIAPI.Controllers
         }
 
         [HttpPost("generate")]
-        public string Generate([FromBody] GenerateRequest _generateRequest)
+        public async Task<IActionResult> Generate([FromBody] GenerateRequest request)
         {
-            string seedText = _generateRequest.SeedText;
-            int contextWindowSize = _generateRequest.ContextWindowSize;
-            int? length = _generateRequest.Length;
-            double temperature = _generateRequest.Temperature;
-            if (model == null || tokenToIndex.Count == 0)
-                throw new InvalidOperationException("Modelo ou vocabulário não inicializados.");
-
-            string seed = string.IsNullOrEmpty(seedText) ? padToken : seedText.ToLower();
-            List<string> currentTokens = TokenizeTextForWindow(seed);
-            while (currentTokens.Count < contextWindowSize)
-                currentTokens.Insert(0, padToken);
-            if (currentTokens.Count > contextWindowSize)
-                currentTokens = currentTokens.Skip(currentTokens.Count - contextWindowSize).ToList();
-
-            StringBuilder generatedText = new StringBuilder(seed);
-            Random rand = new Random();
-            var specialChars = new[] { ".", ",", "!", "?", ":", ";", "\"", "'", "-", "(", ")" };
-
-            for (int i = 0; i < length; i++)
+            Console.WriteLine($"UserInput : {request.SeedText} >> SequenceLength :" +
+                              $" {request.SequenceLength} >> Length : {request.Length} >> Temperature : {request.Temperature} >>" +
+                              $"ContextWindowSize : {request.ContextWindowSize}");
+            try
             {
-                double[] inputData = new double[tokenToIndex.Count * contextWindowSize];
-                for (int k = 0; k < contextWindowSize; k++)
+                if (model == null || tokenToIndex.Count == 0)
                 {
-                    int tokenVocabIndex = tokenToIndex.ContainsKey(currentTokens[k])
-                        ? tokenToIndex[currentTokens[k]]
-                        : tokenToIndex[padToken];
-                    int offset = k * tokenToIndex.Count;
-                    inputData[offset + tokenVocabIndex] = 1.0;
+                    return BadRequest(new
+                        { Error = "Modelo ou vocabulário não inicializados. Treine o modelo primeiro." });
                 }
 
-                Tensor input = new Tensor(inputData, new int[] { tokenToIndex.Count * contextWindowSize });
-                Tensor logitsTensor = model.ForwardLogits(input);
-                double[] logits = logitsTensor.GetData();
-
-                double[] probs = new double[logits.Length];
-                double sumExpTemp = 0;
-                for (int j = 0; j < logits.Length; j++)
+                if (request.ContextWindowSize != contextWindowSize)
                 {
-                    probs[j] = Math.Exp(logits[j] / temperature);
-                    sumExpTemp += probs[j];
-                }
-
-                for (int j = 0; j < probs.Length; j++)
-                    probs[j] /= sumExpTemp;
-
-                double r = rand.NextDouble() * probs.Sum();
-                double cumulative = 0;
-                int nextTokenIdx = 0;
-                for (int j = 0; j < probs.Length; j++)
-                {
-                    cumulative += probs[j];
-                    if (r <= cumulative)
+                    return BadRequest(new
                     {
-                        nextTokenIdx = j;
-                        break;
+                        Error =
+                            $"ContextWindowSize da requisição ({request.ContextWindowSize}) deve ser igual ao ContextWindowSize do modelo carregado ({contextWindowSize})."
+                    });
+                }
+
+                if (request.ContextWindowSize <= 0)
+                {
+                    return BadRequest(new { Error = "ContextWindowSize deve ser positivo." });
+                }
+
+                if (request.Length.HasValue && request.Length <= 0)
+                {
+                    return BadRequest(new { Error = "Length deve ser positivo." });
+                }
+
+                if (request.Temperature <= 0)
+                {
+                    return BadRequest(new { Error = "Temperature deve ser positivo." });
+                }
+
+                if (string.IsNullOrEmpty(request.SeedText))
+                {
+                    return BadRequest(new { Error = "SeedText não pode estar vazio." });
+                }
+
+                // 1. Reflexão e Enriquecimento:
+                string enrichedContext = string.Empty;
+                string topic = _textProcessorService.ExtractMainTopic(request.SeedText);
+                ContextInfo? storedContext = _contextManager.GetContextByTopic(topic);
+
+                bool needsExternalAcquisition = false;
+                if (storedContext == null)
+                {
+                    Console.WriteLine(
+                        $"Reflexão: Nenhum contexto para '{topic}' na memória. Iniciando aquisição de nova informação externa.");
+                    needsExternalAcquisition = true;
+                }
+                else
+                {
+                    DateTime lastUpdated = new DateTime(storedContext.ExternalLastUpdatedTicks);
+                    if (DateTime.UtcNow - lastUpdated > _contextManager.MaxContextAgeForRefresh)
+                    {
+                        Console.WriteLine(
+                            $"Reflexão: Contexto para '{topic}' desatualizado. Buscando informação externa para atualização.");
+                        needsExternalAcquisition = true;
+                    }
+                    else
+                    {
+                        enrichedContext = storedContext.Summary;
+                        Console.WriteLine(
+                            $"Contexto recuperado da memória virtual (atualizado): {storedContext.Summary}");
                     }
                 }
 
-                string nextToken = indexToToken[nextTokenIdx];
-                if (nextToken == padToken) continue;
-
-                bool isSpecialChar = specialChars.Contains(nextToken);
-                bool lastCharIsSpecialChar =
-                    generatedText.Length > 0 && specialChars.Contains(generatedText[^1].ToString());
-
-                // Adiciona espaço antes de palavras, exceto após certos caracteres especiais
-                if (!isSpecialChar && generatedText.Length > 0 && generatedText[^1] != ' ' && !lastCharIsSpecialChar)
+                if (needsExternalAcquisition)
                 {
-                    generatedText.Append(" ");
+                    var (externalContent, sourceName) = await _knowledgeAcquisitionService.GetInformation(topic);
+
+                    if (externalContent.Any() && !string.IsNullOrWhiteSpace(string.Join("", externalContent)))
+                    {
+                        string combinedExternalContent = string.Join(" ", externalContent);
+
+                        ExpandVocabularyAndAdaptModel(combinedExternalContent);
+
+                        string newSummary = _textProcessorService.Summarize(combinedExternalContent);
+                        InternalizeKnowledgeIntoModel(newSummary);
+
+                        ContextInfo contextToStore = storedContext ?? new ContextInfo
+                        {
+                            ContextId = _textProcessorService.GenerateContextHash(topic),
+                            Topic = topic,
+                            Urls = new List<string> { sourceName }
+                        };
+
+                        if (storedContext == null || !string.Equals(newSummary.Trim(), storedContext.Summary.Trim(),
+                                StringComparison.OrdinalIgnoreCase))
+                        {
+                            Console.WriteLine(
+                                $"Informação relevante obtida de {sourceName}. Atualizando/Inserindo memória virtual.");
+                            contextToStore.Summary = newSummary;
+                            contextToStore.ExternalLastUpdatedTicks = DateTime.UtcNow.Ticks;
+
+                            byte[] serializedData = Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(contextToStore));
+                            if (serializedData.Length > TreeNode.MaxDataSize)
+                            {
+                                Console.WriteLine(
+                                    $"Aviso: Contexto externo muito grande ({serializedData.Length} bytes). Truncando para {TreeNode.MaxDataSize} bytes antes de armazenar.");
+                                Array.Resize(ref serializedData, TreeNode.MaxDataSize);
+                            }
+
+                            long offsetToUpdateOrInsert = _contextManager.FindContextOffsetByTopic(topic);
+                            if (offsetToUpdateOrInsert != -1)
+                            {
+                                _memoryStorage.UpdateData(offsetToUpdateOrInsert,
+                                    Encoding.UTF8.GetString(serializedData));
+                            }
+                            else
+                            {
+                                _memoryStorage.Insert(Encoding.UTF8.GetString(serializedData));
+                            }
+
+                            _memoryStorage.CleanUnusedNodes(TimeSpan.FromDays(30));
+                        }
+                        else
+                        {
+                            Console.WriteLine(
+                                $"Informação de {sourceName} não é significativamente diferente ou é redundante. Não atualizando o contexto existente.");
+                        }
+
+                        enrichedContext = newSummary;
+                    }
+                    else
+                    {
+                        Console.WriteLine("Nenhuma fonte externa retornou conteúdo relevante.");
+                        if (storedContext != null) enrichedContext = storedContext.Summary;
+                    }
                 }
-                // Remove espaço antes de pontuações e adiciona espaço após (exceto para aspas ou parênteses)
-                else if (isSpecialChar && generatedText.Length > 0 && generatedText[^1] == ' ')
+                // --- FIM DO FLUXO DE REFLEXÃO E ENRIQUECIMENTO ---
+
+                StringBuilder generatedTextBuilder = new StringBuilder();
+
+                string effectiveSeed = string.IsNullOrEmpty(enrichedContext)
+                    ? request.SeedText
+                    : $"{request.SeedText}. Contexto relevante: {enrichedContext}";
+                
+                generatedTextBuilder.Append(effectiveSeed);
+
+                List<string> currentTokens = TokenizeTextForWindow(effectiveSeed);
+                while (currentTokens.Count < request.ContextWindowSize)
+                    currentTokens.Insert(0, padToken);
+                if (currentTokens.Count > request.ContextWindowSize)
+                    currentTokens = currentTokens.Skip(currentTokens.Count - request.ContextWindowSize).ToList();
+
+                Random rand = new Random();
+                var specialChars = new[] { ".", ",", "!", "?", ":", ";", "\"", "'", "-", "(", ")" };
+
+                for (int i = 0; i < (request.Length ?? 50); i++)
                 {
-                    generatedText.Length--;
+                    Tensor input = ConvertWindowToInputTensor(currentTokens);
+                    Tensor logitsTensor = model.ForwardLogits(input);
+                    double[] logits = logitsTensor.GetData();
+
+                    double[] probs = new double[logits.Length];
+                    double sumExpTemp = 0;
+                    for (int j = 0; j < logits.Length; j++)
+                    {
+                        probs[j] = Math.Exp(logits[j] / request.Temperature);
+                        sumExpTemp += probs[j];
+                    }
+
+                    for (int j = 0; j < probs.Length; j++)
+                        probs[j] /= sumExpTemp;
+
+                    double r = rand.NextDouble() * probs.Sum();
+                    double cumulative = 0;
+                    int nextTokenIdx = 0;
+                    for (int j = 0; j < probs.Length; j++)
+                    {
+                        cumulative += probs[j];
+                        if (r <= cumulative)
+                        {
+                            nextTokenIdx = j;
+                            break;
+                        }
+                    }
+
+                    string nextToken = indexToToken[nextTokenIdx];
+                    if (nextToken == padToken) continue;
+
+                    bool isSpecialChar = specialChars.Contains(nextToken);
+                    bool lastCharIsSpecialChar =
+                        generatedTextBuilder.Length > 0 && specialChars.Contains(generatedTextBuilder[^1].ToString());
+
+                    if (!isSpecialChar && generatedTextBuilder.Length > 0 && generatedTextBuilder[^1] != ' ' && !lastCharIsSpecialChar)
+                    {
+                        generatedTextBuilder.Append(" ");
+                    }
+                    else if (isSpecialChar && generatedTextBuilder.Length > 0 && generatedTextBuilder[^1] == ' ')
+                    {
+                        generatedTextBuilder.Length--;
+                    }
+
+                    generatedTextBuilder.Append(nextToken);
+
+                    if (isSpecialChar && nextToken != "\"" && nextToken != "'" && nextToken != "(" && nextToken != ")")
+                    {
+                        generatedTextBuilder.Append(" ");
+                    }
+
+                    currentTokens.RemoveAt(0);
+                    currentTokens.Add(nextToken);
                 }
 
-                generatedText.Append(nextToken);
+                string finalGeneratedText = generatedTextBuilder.ToString().Trim();
+                if (finalGeneratedText.Length > 0 && char.IsLetter(finalGeneratedText[0]))
+                    finalGeneratedText = char.ToUpper(finalGeneratedText[0]) + finalGeneratedText.Substring(1);
 
-                // Adiciona espaço após pontuações, exceto para aspas ou parênteses
-                if (isSpecialChar && nextToken != "\"" && nextToken != "'" && nextToken != "(" && nextToken != ")")
-                {
-                    generatedText.Append(" ");
-                }
+                await _contextManager.StoreConversationContext(request.SeedText, finalGeneratedText);
+                Console.WriteLine($"AI response : {finalGeneratedText}");
 
-                currentTokens.RemoveAt(0);
-                currentTokens.Add(nextToken);
+                return Ok(finalGeneratedText);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Error = $"Falha na geração: {ex.Message}" });
+            }
+        }
+
+
+        private void ExpandVocabularyAndAdaptModel(string newTextContent)
+        {
+            if (model == null)
+            {
+                Console.WriteLine("Aviso: Modelo não inicializado. Não é possível expandir vocabulário e adaptar.");
+                return;
             }
 
-            string finalGeneratedText = generatedText.ToString().Trim();
-            if (finalGeneratedText.Length > 0 && char.IsLetter(finalGeneratedText[0]))
-                finalGeneratedText = char.ToUpper(finalGeneratedText[0]) + finalGeneratedText.Substring(1);
+            var newTokensFound = new HashSet<string>();
+            var specialChars = new[] { '.', ',', '!', '?', ':', ';', '"', '\'', '-', '(', ')' };
+            var specialCharPattern = string.Join("|", specialChars.Select(c => Regex.Escape(c.ToString())));
+            var pattern = $@"(\p{{L}}+|\p{{N}}+|{specialCharPattern})";
 
-            return finalGeneratedText;
+            var matches = Regex.Matches(newTextContent.ToLower(), pattern);
+            foreach (Match match in matches)
+            {
+                string token = match.Value;
+                if (string.IsNullOrEmpty(token) || char.IsControl(token[0]) && token[0] != ' ' || token == "\uFFFD" ||
+                    (int)token[0] > 0x10FFFF)
+                {
+                    continue;
+                }
+
+                if (!tokenToIndex.ContainsKey(token))
+                {
+                    newTokensFound.Add(token);
+                }
+            }
+
+            if (newTokensFound.Count == 0)
+            {
+                return;
+            }
+
+            Console.WriteLine($"Expandindo vocabulário com {newTokensFound.Count} novos tokens...");
+            foreach (var newToken in newTokensFound.OrderBy(t => t))
+            {
+                if (!tokenToIndex.ContainsKey(newToken))
+                {
+                    tokenToIndex[newToken] = indexToToken.Count;
+                    indexToToken.Add(newToken);
+                }
+            }
+
+            int oldVocabSize = model.OutputSize;
+            int newVocabSize = tokenToIndex.Count;
+
+            if (newVocabSize > oldVocabSize)
+            {
+                Console.WriteLine(
+                    $"Vocabulário expandido de {oldVocabSize} para {newVocabSize} tokens. Adaptando modelo...");
+
+                var newModel = new NeuralNetwork(newVocabSize * contextWindowSize, HiddenSize, newVocabSize,
+                    contextWindowSize);
+
+                for (int h = 0; h < HiddenSize; h++)
+                {
+                    for (int oldVocabIdx = 0; oldVocabIdx < oldVocabSize; oldVocabIdx++)
+                    {
+                        for (int k = 0; k < contextWindowSize; k++)
+                        {
+                            int oldFlatIndex = (k * oldVocabSize + oldVocabIdx) * HiddenSize + h;
+                            int newFlatIndex = (k * newVocabSize + oldVocabIdx) * HiddenSize + h;
+                            if (oldFlatIndex < model.W_i_Tensor.GetData().Length &&
+                                newFlatIndex < newModel.W_i_Tensor.GetData().Length)
+                            {
+                                double[] oldWiData = model.W_i_Tensor.GetData();
+                                double[] newWiData = newModel.W_i_Tensor.GetData();
+                                newWiData[newFlatIndex] = oldWiData[oldFlatIndex];
+                                newModel.W_i_Tensor.SetData(newWiData);
+                            }
+                        }
+                    }
+                }
+                
+                newModel.U_i_Tensor.SetData(model.U_i_Tensor.GetData());
+                newModel.U_f_Tensor.SetData(model.U_f_Tensor.GetData());
+                newModel.U_c_Tensor.SetData(model.U_c_Tensor.GetData());
+                newModel.U_o_Tensor.SetData(model.U_o_Tensor.GetData());
+
+                newModel.b_i_Tensor.SetData(model.b_i_Tensor.GetData());
+                newModel.b_f_Tensor.SetData(model.b_f_Tensor.GetData());
+                newModel.b_c_Tensor.SetData(model.b_c_Tensor.GetData());
+                newModel.b_o_Tensor.SetData(model.b_o_Tensor.GetData());
+
+                for (int h = 0; h < HiddenSize; h++)
+                {
+                    for (int oldVocabIdx = 0; oldVocabIdx < oldVocabSize; oldVocabIdx++)
+                    {
+                        int oldFlatIndex = h * oldVocabSize + oldVocabIdx;
+                        int newFlatIndex = h * newVocabSize + oldVocabIdx;
+                        if (oldFlatIndex < model.W_out_Tensor.GetData().Length &&
+                            newFlatIndex < newModel.W_out_Tensor.GetData().Length)
+                        {
+                            double[] oldWoutData = model.W_out_Tensor.GetData();
+                            double[] newWoutData = newModel.W_out_Tensor.GetData();
+                            newWoutData[newFlatIndex] = oldWoutData[oldFlatIndex];
+                            newModel.W_out_Tensor.SetData(newWoutData);
+                        }
+                    }
+                }
+
+                for (int oldVocabIdx = 0; oldVocabIdx < oldVocabSize; oldVocabIdx++)
+                {
+                    if (oldVocabIdx < model.b_out_Tensor.GetData().Length && oldVocabIdx < newModel.b_out_Tensor.GetData().Length)
+                    {
+                        double[] oldBoutData = model.b_out_Tensor.GetData();
+                        double[] newBoutData = newModel.b_out_Tensor.GetData();
+                        newBoutData[oldVocabIdx] = oldBoutData[oldVocabIdx];
+                        newModel.b_out_Tensor.SetData(newBoutData);
+                    }
+                }
+                
+                model?.Dispose();
+                model = newModel;
+                Console.WriteLine("Modelo adaptado com sucesso ao novo vocabulário.");
+
+                SaveVocabulary();
+            }
+            else if (newVocabSize == oldVocabSize)
+            {
+                Console.WriteLine("Vocabulário não expandiu, nenhuma adaptação de modelo necessária.");
+            }
+        }
+        
+        [HttpPost("summarize")]
+        public async Task<IActionResult> Summarize([FromBody] SummaryRequest request)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(request.TextToSummarize))
+                {
+                    return BadRequest(new { Error = "TextToSummarize não pode estar vazio." });
+                }
+
+                string generatedSummary; 
+
+                Console.WriteLine("Solicitando resumo inteligente ao serviço de aquisição de conhecimento...");
+                var summaryContentParts = await _knowledgeAcquisitionService.GetSummarizationFromExternalService( 
+                    $"Summarize the following text: {request.TextToSummarize}", request.SummaryLengthWords * 2 ?? 500); 
+                
+                generatedSummary = string.Join(" ", summaryContentParts);
+
+                if (string.IsNullOrEmpty(generatedSummary))
+                {
+                    Console.WriteLine("Serviço externo falhou em gerar o resumo. Usando o resumo local.");
+                    generatedSummary =
+                        _textProcessorService.Summarize(request.TextToSummarize, request.SummaryLengthWords ?? 100);
+                }
+
+                ExpandVocabularyAndAdaptModel(request.TextToSummarize);
+                InternalizeKnowledgeIntoModel(generatedSummary);
+
+                string contextTopic = _textProcessorService.ExtractMainTopic(request.TextToSummarize);
+                ContextInfo summaryContext = new ContextInfo
+                {
+                    ContextId = _textProcessorService.GenerateContextHash(contextTopic),
+                    Topic = contextTopic,
+                    Summary = generatedSummary,
+                    Urls = request.SourceUrls ?? new List<string>(),
+                    ExternalLastUpdatedTicks = DateTime.UtcNow.Ticks
+                };
+
+                byte[] serializedData = Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(summaryContext));
+                if (serializedData.Length > TreeNode.MaxDataSize)
+                {
+                    Array.Resize(ref serializedData, TreeNode.MaxDataSize);
+                }
+
+                long existingOffset = _contextManager.FindContextOffsetByTopic(contextTopic);
+                if (existingOffset != -1)
+                {
+                    Console.WriteLine($"Contexto de resumo existente para '{contextTopic}'. Atualizando...");
+                    _memoryStorage.UpdateData(existingOffset, Encoding.UTF8.GetString(serializedData));
+                }
+                else
+                {
+                    Console.WriteLine($"Novo contexto de resumo para '{contextTopic}'. Inserindo...");
+                    _memoryStorage.Insert(Encoding.UTF8.GetString(serializedData));
+                }
+
+                return Ok(new { Summary = generatedSummary, ContextStored = true });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Error = $"Falha ao gerar resumo: {ex.Message}" });
+            }
         }
 
         [HttpPost("evaluate")]

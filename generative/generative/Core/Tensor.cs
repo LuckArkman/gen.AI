@@ -1,4 +1,5 @@
 using System;
+using System.Linq; // Adicionado para SequenceEqual
 
 namespace Core
 {

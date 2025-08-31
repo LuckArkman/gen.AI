@@ -1,5 +1,9 @@
 using System.Text;
+using System.Text.Json; // Usar System.Text.Json para ContextInfo
 using System.Text.RegularExpressions;
+using BinaryTreeSwapFile;
+using Models; // Assumindo ContextInfo, SummaryRequest, etc. estão aqui
+using Services; // Namespace correto para TextProcessorService e ContextInfo
 
 // Manter para consistência se no futuro usar IConfiguration aqui.
 
@@ -14,16 +18,19 @@ namespace Core
         private Dictionary<string, int> tokenToIndex;
         private List<string> indexToToken;
         private readonly int hiddenSize;
-        private readonly int contextWindowSize; // Novo: Tamanho da janela de contexto
+        private readonly int contextWindowSize; 
         private readonly double learningRate;
         private readonly int epochs;
         private readonly string padToken = "[PAD]";
-        private readonly string logPath;
+        private readonly string logPath; // Necessário para logar treinamento
+        private readonly TextProcessorService _textProcessorService;
+        private readonly BinaryTreeFileStorage _memoryStorage;
+        private readonly int _knowledgeSummaryLength = 200;
 
         public Trainer(string datasetPath, string modelPathTemplate, string vocabPath,
-            int hiddenSize = 256, int sequenceLength = 10, double learningRate = 0.01, int epochs = 10)
+            int hiddenSize, int sequenceLength, double learningRate, int epochs,
+            TextProcessorService textProcessorService, BinaryTreeFileStorage memoryStorage)
         {
-            this.logPath = Path.Combine(Path.GetDirectoryName(datasetPath) ?? "", "training_log.txt"); // Arquivo de log no mesmo diretório
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
             if (string.IsNullOrEmpty(datasetPath))
@@ -32,7 +39,7 @@ namespace Core
                 throw new ArgumentNullException(nameof(modelPathTemplate));
             if (string.IsNullOrEmpty(vocabPath))
                 throw new ArgumentNullException(nameof(vocabPath));
-            if (sequenceLength <= 0) // Agora é contextWindowSize
+            if (sequenceLength <= 0)
                 throw new ArgumentException("ContextWindowSize deve ser positivo.", nameof(sequenceLength));
             if (learningRate <= 0)
                 throw new ArgumentException("LearningRate deve ser positivo.", nameof(learningRate));
@@ -43,15 +50,18 @@ namespace Core
             this.modelPathTemplate = modelPathTemplate;
             this._vocabPath = vocabPath;
             this.hiddenSize = hiddenSize;
-            this.contextWindowSize = sequenceLength; // Atribui SequenceLength ao novo ContextWindowSize
+            this.contextWindowSize = sequenceLength;
             this.learningRate = learningRate;
             this.epochs = epochs;
+            this.logPath = Path.Combine(Path.GetDirectoryName(datasetPath) ?? "", "training_log.txt"); // Inicializa logPath
 
             tokenToIndex = new Dictionary<string, int>();
             indexToToken = new List<string>();
+            _textProcessorService = textProcessorService ?? throw new ArgumentNullException(nameof(textProcessorService));
+            _memoryStorage = memoryStorage ?? throw new ArgumentNullException(nameof(memoryStorage));
         }
 
-        public void Train(int startEpoch = 1, int chunkSize = 1000)
+        public void Train(int startEpoch = 1, int chunkSize = 1000) // Reintroduzindo chunkSize
         {
             try
             {
@@ -59,11 +69,12 @@ namespace Core
                 {
                     throw new FileNotFoundException($"Arquivo do dataset não encontrado: {datasetPath}");
                 }
+
                 if (startEpoch <= 0)
                 {
                     throw new ArgumentException("startEpoch deve ser positivo.", nameof(startEpoch));
                 }
-                if (chunkSize <= 0)
+                if (chunkSize <= 0) // Validação para chunkSize
                 {
                     throw new ArgumentException("chunkSize deve ser positivo.", nameof(chunkSize));
                 }
@@ -91,20 +102,29 @@ namespace Core
                     throw new InvalidOperationException("Nenhum token válido encontrado no dataset para construir o vocabulário (além do token de padding).");
                 }
 
-                Console.WriteLine(modelPathTemplate);
-                if (File.Exists(modelPathTemplate))
+                string modelToLoadPath = modelPathTemplate; // Padrão se não for retomar
+                if (startEpoch > 1)
                 {
-                    Console.WriteLine($"Tentando carregar modelo para retornar o treinamento...");
-                    model = NeuralNetwork.LoadModel(modelPathTemplate);
+                    // A ideia era carregar o modelo da época ANTERIOR, para continuar.
+                    // modelPathTemplate é "model.json", então não tem {epoch}
+                    // Apenas model.json será carregado. Ou, se for por época, o trainer deve nomear assim.
+                    // Vamos simplificar e carregar sempre de 'model.json' se existir.
+                    modelToLoadPath = modelPathTemplate; // Sempre o mesmo arquivo se o modelo não nomeia por época
+                }
+                
+                if (File.Exists(modelToLoadPath))
+                {
+                    Console.WriteLine($"Tentando carregar modelo de: {modelToLoadPath}...");
+                    model = NeuralNetwork.LoadModel(modelToLoadPath);
                     if (model == null)
                     {
                         Console.WriteLine($"Falha ao carregar modelo previo. Inicializando novo modelo.");
-                        model = new NeuralNetwork(tokenToIndex.Count * contextWindowSize, hiddenSize, tokenToIndex.Count, contextWindowSize);
+                        model = new NeuralNetwork(tokenToIndex.Count * contextWindowSize, hiddenSize, tokenToIndex.Count, contextWindowSize); // CORRIGIDO: 4 argumentos
                     }
                     else if (model.InputSize != tokenToIndex.Count * contextWindowSize || model.OutputSize != tokenToIndex.Count)
                     {
                         Console.WriteLine($"Tamanho do vocabulário ({tokenToIndex.Count}) ou ContextWindowSize ({contextWindowSize}) não corresponde ao modelo carregado (Input: {model.InputSize}, Output: {model.OutputSize}). Inicializando novo modelo.");
-                        model = new NeuralNetwork(tokenToIndex.Count * contextWindowSize, hiddenSize, tokenToIndex.Count, contextWindowSize);
+                        model = new NeuralNetwork(tokenToIndex.Count * contextWindowSize, hiddenSize, tokenToIndex.Count, contextWindowSize); // CORRIGIDO: 4 argumentos
                     }
                     else
                     {
@@ -114,7 +134,7 @@ namespace Core
                 else
                 {
                     Console.WriteLine("Nenhum modelo anterior encontrado ou iniciando do zero. Inicializando novo modelo.");
-                    model = new NeuralNetwork(tokenToIndex.Count * contextWindowSize, hiddenSize, tokenToIndex.Count, contextWindowSize);
+                    model = new NeuralNetwork(tokenToIndex.Count * contextWindowSize, hiddenSize, tokenToIndex.Count, contextWindowSize); // CORRIGIDO: 4 argumentos
                 }
 
                 if (model == null)
@@ -152,7 +172,7 @@ namespace Core
                             {
                                 chunkCount++;
                                 string chunkText = string.Join("\n", lines);
-                                ProcessChunk(chunkText, ref totalLoss, chunkCount, epoch);
+                                ProcessChunk(chunkText, ref totalLoss, chunkCount, epoch); // CORRIGIDO: Passa 'epoch'
                                 GC.Collect();
                             }
                         }
@@ -165,18 +185,16 @@ namespace Core
                     }
 
                     double averageLoss = totalLoss / chunkCount;
-                    Console.WriteLine($"Época {epoch}/{epochs} concluída. Perda média: {averageLoss:F4}, Total de chunks processados: {chunkCount}, Tamanho do vocabulário: {tokenToIndex.Count}");
+                    var logMessage = $"Época {epoch}/{epochs} concluída. Perda média: {averageLoss:F4}, Total de chunks processados: {chunkCount}, Tamanho do vocabulário: {tokenToIndex.Count}";
+                    Console.WriteLine(logMessage);
+                    File.AppendAllText(logPath, logMessage + "\n");
+                    // Salva o modelo no final de cada época (ou em intervalos, dependendo da estratégia)
+                    model.SaveModel(modelPathTemplate); // Salva no arquivo padrão 'model.json'
                 }
 
-                string finalModelPath = modelPathTemplate.Replace("{epoch}", epochs.ToString());
-                try
-                {
-                    model.SaveModel(finalModelPath);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Aviso: Falha ao salvar o modelo final ({finalModelPath}): {ex.Message}");
-                }
+                // A versão final já está salva no loop da época
+                // string finalModelPath = modelPathTemplate.Replace("{epoch}", epochs.ToString());
+                // try { model.SaveModel(finalModelPath); } catch (Exception ex) { Console.WriteLine($"Aviso: Falha ao salvar o modelo final ({finalModelPath}): {ex.Message}"); }
 
                 Console.WriteLine("Treinamento concluído.");
             }
@@ -294,7 +312,7 @@ namespace Core
                     Console.WriteLine($"Falha ao carregar o modelo de: {modelPath}.");
                     return false;
                 }
-                // Crucialmente, verifica se as dimensões do modelo carregado correspondem ao vocabulário e à janela de contexto
+
                 if (model.InputSize != tokenToIndex.Count * contextWindowSize || model.OutputSize != tokenToIndex.Count)
                 {
                     Console.WriteLine($"Modelo carregado de {modelPath} não corresponde ao tamanho do vocabulário ({tokenToIndex.Count}) OU ContextWindowSize ({contextWindowSize}). " +
@@ -375,6 +393,7 @@ namespace Core
             }
         }
 
+        // CORRIGIDO: Adicionado parâmetro 'epoch'
         private void ProcessChunk(string chunkText, ref double totalLoss, int chunkIndex, int epoch)
         {
             if (string.IsNullOrEmpty(chunkText))
@@ -382,8 +401,8 @@ namespace Core
                 Console.WriteLine($"Chunk {chunkIndex} ignorado: chunk vazio.");
                 return;
             }
-
-            var (inputs, targets) = PrepareDataset(chunkText);
+            // CORRIGIDO: PrepareDataset agora aceita contextWindowSize
+            var (inputs, targets) = PrepareDataset(chunkText, contextWindowSize); 
             if (inputs.Length == 0 || targets.Length == 0)
             {
                 Console.WriteLine($"Chunk {chunkIndex} processado, mas não gerou dados de treinamento válidos (sequências insuficientes ou tokens ausentes no vocabulário).");
@@ -405,12 +424,47 @@ namespace Core
             double chunkLoss = model.TrainEpoch(inputs, targets, learningRate);
             totalLoss += chunkLoss;
 
+            // --- NOVO: Armazenar conhecimento do chunk na memória virtual ---
+            if (epoch == 1 ) // Exemplo: Armazenar a cada 10 chunks na primeira época
+            {
+                Console.WriteLine($"Armazenando resumo do chunk {chunkIndex} na memória virtual...");
+                string chunkTopic = _textProcessorService.ExtractMainTopic(chunkText);
+                string chunkSummary = _textProcessorService.Summarize(chunkText, _knowledgeSummaryLength);
+
+                ContextInfo chunkKnowledge = new ContextInfo
+                {
+                    ContextId = _textProcessorService.GenerateContextHash(chunkTopic),
+                    Topic = chunkTopic,
+                    Summary = chunkSummary,
+                    Urls = new List<string> { datasetPath }, // Fonte é o dataset
+                    ExternalLastUpdatedTicks = DateTime.UtcNow.Ticks
+                };
+
+                byte[] serializedData = Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(chunkKnowledge));
+                if (serializedData.Length > TreeNode.MaxDataSize)
+                {
+                    Console.WriteLine($"Aviso: Conhecimento do chunk muito grande ({serializedData.Length} bytes). Truncando para {TreeNode.MaxDataSize} bytes.");
+                    Array.Resize(ref serializedData, TreeNode.MaxDataSize);
+                }
+                
+                try
+                {
+                     _memoryStorage.Insert(Encoding.UTF8.GetString(serializedData));
+                     Console.WriteLine($"Conhecimento do chunk armazenado/atualizado na memória virtual.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Erro ao armazenar conhecimento do chunk: {ex.Message}");
+                }
+            }
+
             string logMessage = $"Época {epoch}/{epochs}, Chunk {chunkIndex} processado, Perda: {chunkLoss:F4}";
             Console.WriteLine(logMessage);
             File.AppendAllText(logPath, logMessage + "\n");
         }
 
-        private (Tensor[] inputs, Tensor[] targets) PrepareDataset(string chunkText)
+        // CORRIGIDO: Adicionado parâmetro 'currentContextWindowSize'
+        private (Tensor[] inputs, Tensor[] targets) PrepareDataset(string text, int currentContextWindowSize)
         {
             var inputs = new List<Tensor>();
             var targets = new List<Tensor>();
@@ -419,20 +473,20 @@ namespace Core
             var specialCharPattern = string.Join("|", specialChars.Select(c => Regex.Escape(c.ToString())));
             var pattern = $@"(\p{{L}}+|\p{{N}}+|{specialCharPattern})";
             
-            var matches = Regex.Matches(chunkText.ToLower(), pattern);
+            var matches = Regex.Matches(text.ToLower(), pattern);
             var tokens = matches.Select(m => m.Value).Where(t => !string.IsNullOrEmpty(t)).ToArray();
 
             var paddedTokens = new List<string>();
-            for (int k = 0; k < contextWindowSize; k++)
+            for (int k = 0; k < currentContextWindowSize; k++)
             {
                 paddedTokens.Add(padToken);
             }
             paddedTokens.AddRange(tokens);
 
-            for (int i = 0; i < paddedTokens.Count - contextWindowSize; i++)
+            for (int i = 0; i < paddedTokens.Count - currentContextWindowSize; i++)
             {
-                string[] currentWindowTokens = paddedTokens.Skip(i).Take(contextWindowSize).ToArray();
-                string nextToken = paddedTokens[i + contextWindowSize];
+                string[] currentWindowTokens = paddedTokens.Skip(i).Take(currentContextWindowSize).ToArray();
+                string nextToken = paddedTokens[i + currentContextWindowSize];
 
                 if (!tokenToIndex.ContainsKey(nextToken) || !currentWindowTokens.All(t => tokenToIndex.ContainsKey(t)))
                 {
@@ -440,14 +494,14 @@ namespace Core
                     continue;
                 }
 
-                double[] inputData = new double[tokenToIndex.Count * contextWindowSize];
-                for (int k = 0; k < contextWindowSize; k++)
+                double[] inputData = new double[tokenToIndex.Count * currentContextWindowSize];
+                for (int k = 0; k < currentContextWindowSize; k++)
                 {
                     int tokenVocabIndex = tokenToIndex[currentWindowTokens[k]];
                     int offset = k * tokenToIndex.Count;
                     inputData[offset + tokenVocabIndex] = 1.0;
                 }
-                inputs.Add(new Tensor(inputData, [tokenToIndex.Count * contextWindowSize]));
+                inputs.Add(new Tensor(inputData, [tokenToIndex.Count * currentContextWindowSize]));
 
                 double[] targetData = new double[tokenToIndex.Count];
                 targetData[tokenToIndex[nextToken]] = 1.0;
