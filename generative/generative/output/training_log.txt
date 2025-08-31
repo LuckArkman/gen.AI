@@ -1,0 +1,110 @@
+Época 1/10, Chunk 1 processado, Perda: 5,7982
+Época 1/10, Chunk 2 processado, Perda: 5,7989
+Época 1/10, Chunk 3 processado, Perda: 5,7985
+Época 1/10, Chunk 4 processado, Perda: 5,7993
+Época 1/10, Chunk 5 processado, Perda: 5,7992
+Época 1/10, Chunk 6 processado, Perda: 5,7993
+Época 1/10, Chunk 7 processado, Perda: 5,7976
+Época 1/10, Chunk 8 processado, Perda: 5,7985
+Época 1/10, Chunk 9 processado, Perda: 5,7986
+Época 1/10, Chunk 10 processado, Perda: 5,7975
+Época 1/10 concluída. Perda média: 5,7986, Total de chunks processados: 10, Tamanho do vocabulário: 330
+Época 2/10, Chunk 1 processado, Perda: 5,7969
+Época 2/10, Chunk 2 processado, Perda: 5,7972
+Época 2/10, Chunk 3 processado, Perda: 5,7967
+Época 2/10, Chunk 4 processado, Perda: 5,7975
+Época 2/10, Chunk 5 processado, Perda: 5,7973
+Época 2/10, Chunk 6 processado, Perda: 5,7973
+Época 2/10, Chunk 7 processado, Perda: 5,7954
+Época 2/10, Chunk 8 processado, Perda: 5,7964
+Época 2/10, Chunk 9 processado, Perda: 5,7966
+Época 2/10, Chunk 10 processado, Perda: 5,7953
+Época 2/10 concluída. Perda média: 5,7967, Total de chunks processados: 10, Tamanho do vocabulário: 330
+Época 3/10, Chunk 1 processado, Perda: 5,7955
+Época 3/10, Chunk 2 processado, Perda: 5,7955
+Época 3/10, Chunk 3 processado, Perda: 5,7949
+Época 3/10, Chunk 4 processado, Perda: 5,7958
+Época 3/10, Chunk 5 processado, Perda: 5,7954
+Época 3/10, Chunk 6 processado, Perda: 5,7953
+Época 3/10, Chunk 7 processado, Perda: 5,7932
+Época 3/10, Chunk 8 processado, Perda: 5,7944
+Época 3/10, Chunk 9 processado, Perda: 5,7946
+Época 3/10, Chunk 10 processado, Perda: 5,7931
+Época 3/10 concluída. Perda média: 5,7948, Total de chunks processados: 10, Tamanho do vocabulário: 330
+Época 4/10, Chunk 1 processado, Perda: 5,7941
+Época 4/10, Chunk 2 processado, Perda: 5,7939
+Época 4/10, Chunk 3 processado, Perda: 5,7932
+Época 4/10, Chunk 4 processado, Perda: 5,7940
+Época 4/10, Chunk 5 processado, Perda: 5,7934
+Época 4/10, Chunk 6 processado, Perda: 5,7932
+Época 4/10, Chunk 7 processado, Perda: 5,7910
+Época 4/10, Chunk 8 processado, Perda: 5,7923
+Época 4/10, Chunk 9 processado, Perda: 5,7927
+Época 4/10, Chunk 10 processado, Perda: 5,7909
+Época 4/10 concluída. Perda média: 5,7929, Total de chunks processados: 10, Tamanho do vocabulário: 330
+Época 5/10, Chunk 1 processado, Perda: 5,7927
+Época 5/10, Chunk 2 processado, Perda: 5,7922
+Época 5/10, Chunk 3 processado, Perda: 5,7914
+Época 5/10, Chunk 4 processado, Perda: 5,7923
+Época 5/10, Chunk 5 processado, Perda: 5,7915
+Época 5/10, Chunk 6 processado, Perda: 5,7912
+Época 5/10, Chunk 7 processado, Perda: 5,7889
+Época 5/10, Chunk 8 processado, Perda: 5,7902
+Época 5/10, Chunk 9 processado, Perda: 5,7907
+Época 5/10, Chunk 10 processado, Perda: 5,7887
+Época 5/10 concluída. Perda média: 5,7910, Total de chunks processados: 10, Tamanho do vocabulário: 330
+Época 6/10, Chunk 1 processado, Perda: 5,7913
+Época 6/10, Chunk 2 processado, Perda: 5,7905
+Época 6/10, Chunk 3 processado, Perda: 5,7896
+Época 6/10, Chunk 4 processado, Perda: 5,7906
+Época 6/10, Chunk 5 processado, Perda: 5,7896
+Época 6/10, Chunk 6 processado, Perda: 5,7892
+Época 6/10, Chunk 7 processado, Perda: 5,7867
+Época 6/10, Chunk 8 processado, Perda: 5,7881
+Época 6/10, Chunk 9 processado, Perda: 5,7888
+Época 6/10, Chunk 10 processado, Perda: 5,7865
+Época 6/10 concluída. Perda média: 5,7891, Total de chunks processados: 10, Tamanho do vocabulário: 330
+Época 7/10, Chunk 1 processado, Perda: 5,7899
+Época 7/10, Chunk 2 processado, Perda: 5,7888
+Época 7/10, Chunk 3 processado, Perda: 5,7879
+Época 7/10, Chunk 4 processado, Perda: 5,7888
+Época 7/10, Chunk 5 processado, Perda: 5,7877
+Época 7/10, Chunk 6 processado, Perda: 5,7872
+Época 7/10, Chunk 7 processado, Perda: 5,7845
+Época 7/10, Chunk 8 processado, Perda: 5,7860
+Época 7/10, Chunk 9 processado, Perda: 5,7868
+Época 7/10, Chunk 10 processado, Perda: 5,7843
+Época 7/10 concluída. Perda média: 5,7872, Total de chunks processados: 10, Tamanho do vocabulário: 330
+Época 8/10, Chunk 1 processado, Perda: 5,7885
+Época 8/10, Chunk 2 processado, Perda: 5,7872
+Época 8/10, Chunk 3 processado, Perda: 5,7861
+Época 8/10, Chunk 4 processado, Perda: 5,7871
+Época 8/10, Chunk 5 processado, Perda: 5,7858
+Época 8/10, Chunk 6 processado, Perda: 5,7852
+Época 8/10, Chunk 7 processado, Perda: 5,7823
+Época 8/10, Chunk 8 processado, Perda: 5,7840
+Época 8/10, Chunk 9 processado, Perda: 5,7848
+Época 8/10, Chunk 10 processado, Perda: 5,7821
+Época 8/10 concluída. Perda média: 5,7853, Total de chunks processados: 10, Tamanho do vocabulário: 330
+Época 9/10, Chunk 1 processado, Perda: 5,7872
+Época 9/10, Chunk 2 processado, Perda: 5,7855
+Época 9/10, Chunk 3 processado, Perda: 5,7844
+Época 9/10, Chunk 4 processado, Perda: 5,7853
+Época 9/10, Chunk 5 processado, Perda: 5,7839
+Época 9/10, Chunk 6 processado, Perda: 5,7832
+Época 9/10, Chunk 7 processado, Perda: 5,7801
+Época 9/10, Chunk 8 processado, Perda: 5,7819
+Época 9/10, Chunk 9 processado, Perda: 5,7829
+Época 9/10, Chunk 10 processado, Perda: 5,7799
+Época 9/10 concluída. Perda média: 5,7834, Total de chunks processados: 10, Tamanho do vocabulário: 330
+Época 10/10, Chunk 1 processado, Perda: 5,7858
+Época 10/10, Chunk 2 processado, Perda: 5,7838
+Época 10/10, Chunk 3 processado, Perda: 5,7826
+Época 10/10, Chunk 4 processado, Perda: 5,7836
+Época 10/10, Chunk 5 processado, Perda: 5,7820
+Época 10/10, Chunk 6 processado, Perda: 5,7811
+Época 10/10, Chunk 7 processado, Perda: 5,7780
+Época 10/10, Chunk 8 processado, Perda: 5,7798
+Época 10/10, Chunk 9 processado, Perda: 5,7809
+Época 10/10, Chunk 10 processado, Perda: 5,7777
+Época 10/10 concluída. Perda média: 5,7815, Total de chunks processados: 10, Tamanho do vocabulário: 330

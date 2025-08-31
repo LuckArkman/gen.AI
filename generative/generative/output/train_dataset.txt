@@ -1,3 +1,31 @@
+Olá, como posso ajudar você?
+Bom dia, tudo bem?
+Sim, tudo bem.
+Ótimo, obrigado.
+Preciso de ajuda.
+Com o que posso ajudar?
+Quero gerar texto.
+Ok, podemos gerar.
+Qual é o seu nome?
+Meu nome é Assistente.
+Você é uma IA?
+Sim, sou uma IA.
+Boa tarde.
+Boa tarde, como vai?
+Tudo bem, e você?
+Eu estou bem.
+Onde você vive?
+Eu vivo na nuvem.
+Me conte algo.
+O sol é quente.
+Você aprende?
+Sim, eu aprendo.
+Qual a cor do céu?
+O céu é azul.
+Obrigado por perguntar.
+De nada.
+Até logo.
+Tchau!
 1. Olá, bem-vindo ao sistema de treinamento de modelos!
 2. Bom dia, como posso ajudar você hoje?
 3. Boa tarde, tudo bem com você?

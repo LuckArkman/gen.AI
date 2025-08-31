@@ -1,0 +1,60 @@
+@model AlphaOne.Controllers.AccountController.RegisterViewModel
+
+@{
+    ViewData["Title"] = "AlphaOne";
+    Layout = "_LayoutAuth"; // Usar o layout de autenticação
+}
+
+<div class="auth-card">
+    <div class="auth-header">
+        <div class="auth-logo">D</div>
+        <h3>Let's Get Started AlphaOne</h3>
+        <p>Sign in to continue to AlphaOne.</p>
+        <div class="auth-tabs">
+            <a asp-controller="Account" asp-action="Login" class="auth-tab-link">Log In</a>
+            <a href="#" class="auth-tab-link active">Register</a>
+        </div>
+    </div>
+    <div class="auth-body">
+        <form asp-controller="Account" asp-action="Register" asp-route-returnurl="@ViewData["ReturnUrl"]" method="post">
+            <div asp-validation-summary="ModelOnly" class="validation-summary-errors" role="alert"></div>
+            <div class="form-group">
+                <label asp-for="PersonalName">Personal Name</label>
+                <input asp-for="PersonalName" class="form-control" aria-required="true" placeholder="Enter your personal name" />
+                <span asp-validation-for="PersonalName" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="Nickname">Nickname</label>
+                <input asp-for="Nickname" class="form-control" aria-required="true" placeholder="Enter your desired nickname" />
+                <span asp-validation-for="Nickname" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="Email">Email</label>
+                <input asp-for="Email" class="form-control" autocomplete="username" aria-required="true" placeholder="Enter Email" />
+                <span asp-validation-for="Email" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="Password">Password</label>
+                <input asp-for="Password" class="form-control" autocomplete="new-password" aria-required="true" placeholder="Enter password" />
+                <span asp-validation-for="Password" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="ConfirmPassword">Confirm Password</label>
+                <input asp-for="ConfirmPassword" class="form-control" autocomplete="new-password" aria-required="true" placeholder="Enter Confirm Password" />
+                <span asp-validation-for="ConfirmPassword" class="text-danger"></span>
+            </div>
+            <div class="privacy-checkbox">
+                <input type="checkbox" id="terms-agree" required />
+                <label for="terms-agree">You agree to the Dastone <a href="#" class="auth-link">Terms of Use</a></label>
+            </div>
+            <button id="registerSubmit" type="submit" class="auth-button">Register <i class="material-icons">arrow_forward</i></button>
+            <p class="text-center auth-footer-text mt-3">
+                Already have an account? <a asp-controller="Account" asp-action="Login" class="auth-link">Log In</a>
+            </p>
+        </form>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

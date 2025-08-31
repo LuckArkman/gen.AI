@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "/home/mplopes/RiderProjects/generative/generative/generative.csproj": {}
+    "/home/mplopes/Documentos/generative/generative/generative.csproj": {}
   },
   "projects": {
-    "/home/mplopes/RiderProjects/generative/generative/generative.csproj": {
+    "/home/mplopes/Documentos/generative/generative/generative.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "/home/mplopes/RiderProjects/generative/generative/generative.csproj",
+        "projectUniqueName": "/home/mplopes/Documentos/generative/generative/generative.csproj",
         "projectName": "generative",
-        "projectPath": "/home/mplopes/RiderProjects/generative/generative/generative.csproj",
+        "projectPath": "/home/mplopes/Documentos/generative/generative/generative.csproj",
         "packagesPath": "/home/mplopes/.nuget/packages/",
-        "outputPath": "/home/mplopes/RiderProjects/generative/generative/obj/",
+        "outputPath": "/home/mplopes/Documentos/generative/generative/obj/",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "/home/mplopes/.nuget/NuGet/NuGet.Config"
@@ -20,6 +20,7 @@
           "net8.0"
         ],
         "sources": {
+          "/usr/share/dotnet/library-packs": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
@@ -43,9 +44,21 @@
         "net8.0": {
           "targetAlias": "net8.0",
           "dependencies": {
+            "Cloo.clSharp": {
+              "target": "Package",
+              "version": "[1.0.1, )"
+            },
+            "HtmlAgilityPack": {
+              "target": "Package",
+              "version": "[1.12.2, )"
+            },
             "Microsoft.AspNetCore.OpenApi": {
               "target": "Package",
               "version": "[8.0.16, )"
+            },
+            "Newtonsoft.Json": {
+              "target": "Package",
+              "version": "[13.0.4-beta1, )"
             },
             "Swashbuckle.AspNetCore": {
               "target": "Package",

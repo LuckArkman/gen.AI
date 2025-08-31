@@ -1,4 +1,5 @@
 using System;
+using System.Linq; // Adicionado para SequenceEqual
 
 namespace Core
 {
@@ -64,6 +65,34 @@ namespace Core
                 size *= dim;
             }
             return size;
+        }
+        
+        public Tensor Transpose()
+        {
+            if (shape.Length != 2)
+            {
+                throw new InvalidOperationException("Transposição é suportada apenas para tensores 2D (matrizes).");
+            }
+
+            int rows = shape[0];
+            int cols = shape[1];
+            double[] transposedData = new double[cols * rows];
+
+            for (int i = 0; i < rows; i++)
+            {
+                for (int j = 0; j < cols; j++)
+                {
+                    transposedData[j * rows + i] = data[i * cols + j];
+                }
+            }
+            return new Tensor(transposedData, new int[] { cols, rows });
+        }
+
+        public void SetData(double[] newData)
+        {
+            if (newData == null || newData.Length != GetTotalSize())
+                throw new ArgumentException("New data size does not match tensor shape.");
+            Array.Copy(newData, data, newData.Length);
         }
     }
 }
