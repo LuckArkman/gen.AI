@@ -53,7 +53,7 @@ Este projeto implementa uma rede neural LSTM (Long Short-Term Memory) capaz de g
 
     Refletir sobre a necessidade de novas informações com base nos prompts do usuário.
 
-    Adquirir conhecimento de fontes externas (APIs da OpenAI e Google).
+    Adquirir conhecimento de fontes externas (fontes de dados na internet).
 
     Internalizar o novo conhecimento através de um micro-treinamento (fine-tuning).
 
