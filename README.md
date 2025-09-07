@@ -137,7 +137,7 @@ Análise dos Componentes
 
         ChatGPTService & GoogleSearchService: Clientes de API autocontidos que atuam como os "sentidos" da IA para o mundo externo.
 
-        KnowledgeAcquisitionService: Um orquestrador que decide qual "sentido" usar, implementando uma estratégia de busca hierárquica (tenta ChatGPT, se falhar, tenta Google).
+        KnowledgeAcquisitionService: Um orquestrador que decide qual "sentido" usar, implementando uma estratégia de busca hierárquica (tenta MCFP, se falhar, tenta Google).
 
         TextProcessorService: Um conjunto de ferramentas stateless para manipulação de texto (resumo, hashing, etc.).
 
