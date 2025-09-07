@@ -18,7 +18,8 @@ namespace GenerativeAIAPI.Controllers
     [Route("api/[controller]")]
     public class GenerativeAIController : ControllerBase
     {
-        readonly ListenerService _listenerService;
+        private readonly ListenerService _listenerService;
+        private readonly DatasetService _datasetService;
         private readonly string modelDir;
         private readonly string modelPath;
         private readonly string vocabPath;
@@ -42,7 +43,8 @@ namespace GenerativeAIAPI.Controllers
             ContextManager contextManager,
             TextProcessorService textProcessorService,
             KnowledgeAcquisitionService knowledgeAcquisitionService,
-            ListenerService listenerService) // ListenerService injetado
+            ListenerService listenerService,
+            DatasetService datasetService) // ListenerService injetado
         {
             modelDir = configuration["ModelSettings:ModelDirectory"] ??
                        "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/"; // CORRIGIDO: Inicializa modelDir primeiro
@@ -51,6 +53,7 @@ namespace GenerativeAIAPI.Controllers
             _textProcessorService = textProcessorService;
             _knowledgeAcquisitionService = knowledgeAcquisitionService;
             _listenerService = listenerService; // Atribui o serviço
+            _datasetService = datasetService;
 
             _memoryFilePath = configuration["ModelSettings:MemoryFilePath"] ?? Path.Combine(modelDir, "AIModelMem.dat");
             _memoryStorage = new BinaryTreeSwapFile.BinaryTreeFileStorage(_memoryFilePath);
@@ -171,7 +174,7 @@ namespace GenerativeAIAPI.Controllers
                         requestContextWindowSize);
                 }
 
-                var dataset = _listenerService.PrepareDataset(request.TextData, requestContextWindowSize);
+                var dataset = _datasetService.PrepareDataset(request.TextData!, request.ContextWindowSize, tokenToIndex, padToken);
 
                 if (dataset.Count == 0)
                 {
@@ -245,8 +248,7 @@ namespace GenerativeAIAPI.Controllers
 
                 // --- CORREÇÃO AQUI ---
                 // 1. Obter a lista de tuplas em uma única variável.
-                var dataset = _listenerService.PrepareDataset(request.TextData, request.ContextWindowSize);
-
+                var dataset = _datasetService.PrepareDataset(request.TextData!, request.ContextWindowSize, tokenToIndex, padToken);
                 if (dataset.Count == 0)
                 {
                     return BadRequest(new
@@ -395,8 +397,7 @@ namespace GenerativeAIAPI.Controllers
                                 serializedData = serializedData,
                                 newSummary = newSummary
                             };
-                            _ContextAdded.Enqueue(_new);
-                            ContextAdded!.Invoke(this, _new);
+                            await _listenerService.OnContextAdded(this, _new);
                         }
                         else
                         {

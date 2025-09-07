@@ -44,10 +44,6 @@
         "net8.0": {
           "targetAlias": "net8.0",
           "dependencies": {
-            "Cloo.clSharp": {
-              "target": "Package",
-              "version": "[1.0.0, )"
-            },
             "HtmlAgilityPack": {
               "target": "Package",
               "version": "[1.12.2, )"
@@ -59,6 +55,14 @@
             "Newtonsoft.Json": {
               "target": "Package",
               "version": "[13.0.4-beta1, )"
+            },
+            "OpenCL.Net": {
+              "target": "Package",
+              "version": "[2.2.9, )"
+            },
+            "OpenTK": {
+              "target": "Package",
+              "version": "[4.9.4, )"
             },
             "Swashbuckle.AspNetCore": {
               "target": "Package",

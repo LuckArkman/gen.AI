@@ -25,11 +25,19 @@ namespace Core
         private readonly string logPath; // Necessário para logar treinamento
         private readonly TextProcessorService _textProcessorService;
         private readonly BinaryTreeSwapFile.BinaryTreeFileStorage _memoryStorage;
+        private readonly DatasetService _datasetService;
         private readonly int _knowledgeSummaryLength = 200;
 
-        public Trainer(string datasetPath, string modelPathTemplate, string vocabPath,
-            int hiddenSize, int sequenceLength, double learningRate, int epochs,
-            TextProcessorService textProcessorService, BinaryTreeSwapFile.BinaryTreeFileStorage memoryStorage)
+        public Trainer(string datasetPath,
+            string modelPathTemplate,
+            string vocabPath,
+            int hiddenSize,
+            int sequenceLength,
+            double learningRate,
+            int epochs,
+            TextProcessorService textProcessorService,
+            BinaryTreeFileStorage memoryStorage,
+            DatasetService datasetService)
         {
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
@@ -53,6 +61,7 @@ namespace Core
             this.contextWindowSize = sequenceLength;
             this.learningRate = learningRate;
             this.epochs = epochs;
+            _datasetService = datasetService;
             this.logPath = Path.Combine(Path.GetDirectoryName(datasetPath) ?? "", "training_log.txt"); // Inicializa logPath
 
             tokenToIndex = new Dictionary<string, int>();
@@ -401,7 +410,7 @@ namespace Core
                 return;
             }
             
-            var dataset = PrepareDataset(chunkText, contextWindowSize); 
+            var dataset = _datasetService.PrepareDataset(chunkText, contextWindowSize, tokenToIndex, padToken);
             if (dataset.Count == 0)
             {
                 Console.WriteLine($"Chunk {chunkIndex} processado, mas não gerou dados de treinamento válidos (sequências insuficientes ou tokens ausentes no vocabulário).");

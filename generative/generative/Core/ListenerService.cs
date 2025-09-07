@@ -7,32 +7,31 @@ using Services;
 
 namespace Core;
 
-public class ListenerService : IHostedService
+public class ListenerService
 {
     private readonly string modelDir;
     private readonly string vocabPath;
     private readonly string modelPath;
     private BinaryTreeFileStorage _memoryStorage;
     private readonly TextProcessorService _textProcessorService;
+    private readonly DatasetService _datasetService;
     private readonly string _memoryFilePath;
     private Dictionary<string, int> tokenToIndex;
     private readonly string padToken = "[PAD]";
     private readonly int contextWindowSize;
     private List<string> indexToToken;
     private NeuralNetwork? model;
-    private readonly GenerativeAIController _server;
     private readonly ILogger<ListenerService> _logger;
     private const double KnowledgeInternalizationLearningRate = 0.001;
 
     public ListenerService(IConfiguration configuration,
-        GenerativeAIController server,
         TextProcessorService textProcessorService,
-        ILogger<ListenerService> logger)
+        ILogger<ListenerService> logger,
+        DatasetService datasetService)
     {
         _textProcessorService = textProcessorService;
-        _server = server;
         _logger = logger;
-        _server.ContextAdded += OnContextAdded;
+        _datasetService = datasetService;
         modelDir = configuration["ModelSettings:ModelDirectory"] ??
                    "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/";
         _memoryFilePath = configuration["ModelSettings:MemoryFilePath"] ?? Path.Combine(modelDir, "AIModelMem.dat");
@@ -138,7 +137,7 @@ public class ListenerService : IHostedService
         }
     }
 
-    async void OnContextAdded(object? sender, SaveContext contextManager)
+    public async Task OnContextAdded(object? sender, SaveContext contextManager)
     {
         long offsetToUpdateOrInsert = contextManager.offsetToUpdateOrInsert;
         byte[] serializedData = contextManager.serializedData;
@@ -165,7 +164,7 @@ public class ListenerService : IHostedService
             return 0;
         }
 
-        var dataset = PrepareDataset(knowledgeText, contextWindowSize);
+        var dataset = _datasetService.PrepareDataset(knowledgeText, contextWindowSize, tokenToIndex, padToken);
         if (dataset.Count == 0)
         {
             Console.WriteLine("Dados de conhecimento insuficientes para internalização.");
@@ -177,66 +176,5 @@ public class ListenerService : IHostedService
         Console.WriteLine($"Perda na internalização de conhecimento: {loss:F4}");
         model.SaveModel(modelPath);
         return loss;
-    }
-
-    public List<(Tensor input, Tensor target)> PrepareDataset(string text, int currentContextWindowSize)
-    {
-        var dataset = new List<(Tensor input, Tensor target)>();
-
-        var specialChars = new[] { '.', ',', '!', '?', ':', ';', '"', '\'', '-', '(', ')' };
-        var specialCharPattern = string.Join("|", specialChars.Select(c => Regex.Escape(c.ToString())));
-        var pattern = $@"(\p{{L}}+|\p{{N}}+|{specialCharPattern})";
-
-        var matches = Regex.Matches(text.ToLower(), pattern);
-        var tokens = matches.Select(m => m.Value).Where(t => !string.IsNullOrEmpty(t)).ToArray();
-
-        var paddedTokens = new List<string>();
-        for (int k = 0; k < currentContextWindowSize; k++)
-        {
-            paddedTokens.Add(padToken);
-        }
-
-        paddedTokens.AddRange(tokens);
-
-        for (int i = 0; i < paddedTokens.Count - currentContextWindowSize; i++)
-        {
-            string[] currentWindowTokens = paddedTokens.Skip(i).Take(currentContextWindowSize).ToArray();
-            string nextToken = paddedTokens[i + currentContextWindowSize];
-
-            if (!tokenToIndex.ContainsKey(nextToken) || !currentWindowTokens.All(t => tokenToIndex.ContainsKey(t)))
-            {
-                Console.WriteLine(
-                    $"Sequência ignorada no dataset (índice {i}): tokens ausentes no vocabulário. Próximo Token: '{nextToken}', Janela: '{string.Join(" ", currentWindowTokens)}'");
-                continue;
-            }
-
-            double[] inputData = new double[tokenToIndex.Count * currentContextWindowSize];
-            for (int k = 0; k < currentContextWindowSize; k++)
-            {
-                int tokenVocabIndex = tokenToIndex[currentWindowTokens[k]];
-                int offset = k * tokenToIndex.Count;
-                inputData[offset + tokenVocabIndex] = 1.0;
-            }
-            var inputTensor = new Tensor(inputData, new int[] { tokenToIndex.Count * currentContextWindowSize });
-
-            double[] targetData = new double[tokenToIndex.Count];
-            targetData[tokenToIndex[nextToken]] = 1.0;
-            var targetTensor = new Tensor(targetData, new int[] { tokenToIndex.Count });
-            
-            dataset.Add((inputTensor, targetTensor));
-        }
-
-        return dataset;
-    }
-
-    public async Task StartAsync(CancellationToken cancellationToken)
-    {
-        await Task.CompletedTask;
-    }
-
-    public async Task StopAsync(CancellationToken cancellationToken)
-    {
-        _server.ContextAdded -= OnContextAdded;
-        await Task.CompletedTask;
     }
 }

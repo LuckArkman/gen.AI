@@ -84,7 +84,6 @@
 /home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/generative.runtimeconfig.json
 /home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/generative.dll
 /home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/generative.pdb
-/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/Cloo.dll
 /home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/HtmlAgilityPack.dll
 /home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/Microsoft.AspNetCore.OpenApi.dll
 /home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/Microsoft.OpenApi.dll
@@ -114,3 +113,18 @@
 /home/mplopes/Documentos/GitHub/gen.AI/generative/generative/obj/Debug/net8.0/generative.pdb
 /home/mplopes/Documentos/GitHub/gen.AI/generative/generative/obj/Debug/net8.0/generative.genruntimeconfig.cache
 /home/mplopes/Documentos/GitHub/gen.AI/generative/generative/obj/Debug/net8.0/ref/generative.dll
+/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/OpenCL.Net.dll
+/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/OpenTK.Audio.OpenAL.dll
+/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/OpenTK.Compute.dll
+/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/OpenTK.Core.dll
+/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/OpenTK.Graphics.dll
+/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/OpenTK.Input.dll
+/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/OpenTK.Mathematics.dll
+/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/OpenTK.Windowing.Common.dll
+/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/OpenTK.Windowing.Desktop.dll
+/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/OpenTK.Windowing.GraphicsLibraryFramework.dll
+/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/runtimes/linux-x64/native/libglfw.so.3
+/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/runtimes/osx-arm64/native/libglfw.3.dylib
+/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/runtimes/osx-x64/native/libglfw.3.dylib
+/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/runtimes/win-x64/native/glfw3.dll
+/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/runtimes/win-x86/native/glfw3.dll
