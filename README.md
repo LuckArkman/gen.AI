@@ -94,7 +94,7 @@ Usuário -> [API Host] -> GenerativeAIController
            |
            +--> KnowledgeAcquisitionService (Se necessário)
                    |
-                   +--> ChatGPTService / GoogleSearchService (Busca externa)
+                   +--> MCFPService / GoogleSearchService (Busca externa)
            |
            +--> (Processa e Internaliza novo conhecimento)
            |
@@ -135,7 +135,7 @@ Análise dos Componentes
     Funcionamento Independente:
     Cada serviço nesta camada tem uma responsabilidade única e bem definida:
 
-        ChatGPTService & GoogleSearchService: Clientes de API autocontidos que atuam como os "sentidos" da IA para o mundo externo.
+        MCFPService & GoogleSearchService: Clientes de API autocontidos que atuam como os "sentidos" da IA para o mundo externo.
 
         KnowledgeAcquisitionService: Um orquestrador que decide qual "sentido" usar, implementando uma estratégia de busca hierárquica (tenta MCFP, se falhar, tenta Google).
 
