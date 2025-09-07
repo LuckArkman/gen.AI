@@ -2,7 +2,7 @@
   "version": 3,
   "targets": {
     "net8.0": {
-      "Cloo.clSharp/1.0.1": {
+      "Cloo.clSharp/1.0.0": {
         "type": "package",
         "compile": {
           "lib/netstandard2.0/Cloo.dll": {
@@ -150,14 +150,14 @@
     }
   },
   "libraries": {
-    "Cloo.clSharp/1.0.1": {
-      "sha512": "IobfnbM8xi2HjBN3lKYhomwwsp5Nk8MKNxT6Aag7A/0u/wuN6/ZwNh4AGMKZPutNwpa8UZfOJEoYWDB9Pr1jJg==",
+    "Cloo.clSharp/1.0.0": {
+      "sha512": "jjqvL/AcEXddcvQqFUxnDfkZ3ePQ2RQK/oOhh0IPYYHVIf2/eTsR4bSYOPpLunqW26Vu2ZcFN7qRiYcyZBehOQ==",
       "type": "package",
-      "path": "cloo.clsharp/1.0.1",
+      "path": "cloo.clsharp/1.0.0",
       "files": [
         ".nupkg.metadata",
         ".signature.p7s",
-        "cloo.clsharp.1.0.1.nupkg.sha512",
+        "cloo.clsharp.1.0.0.nupkg.sha512",
         "cloo.clsharp.nuspec",
         "lib/netstandard2.0/Cloo.dll",
         "lib/netstandard2.0/Cloo.xml"
@@ -604,7 +604,7 @@
   },
   "projectFileDependencyGroups": {
     "net8.0": [
-      "Cloo.clSharp >= 1.0.1",
+      "Cloo.clSharp >= 1.0.0",
       "HtmlAgilityPack >= 1.12.2",
       "Microsoft.AspNetCore.OpenApi >= 8.0.16",
       "Newtonsoft.Json >= 13.0.4-beta1",
@@ -617,11 +617,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "/home/mplopes/Documentos/generative/generative/generative.csproj",
+      "projectUniqueName": "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/generative.csproj",
       "projectName": "generative",
-      "projectPath": "/home/mplopes/Documentos/generative/generative/generative.csproj",
+      "projectPath": "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/generative.csproj",
       "packagesPath": "/home/mplopes/.nuget/packages/",
-      "outputPath": "/home/mplopes/Documentos/generative/generative/obj/",
+      "outputPath": "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/obj/",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "/home/mplopes/.nuget/NuGet/NuGet.Config"
@@ -656,7 +656,7 @@
         "dependencies": {
           "Cloo.clSharp": {
             "target": "Package",
-            "version": "[1.0.1, )"
+            "version": "[1.0.0, )"
           },
           "HtmlAgilityPack": {
             "target": "Package",

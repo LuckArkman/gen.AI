@@ -5,166 +5,305 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Collections.Generic; // Adicionado para List
+using System.Collections.Generic;
 
 namespace Core
 {
     public class NeuralNetwork : IDisposable
     {
-        // Pesos e vieses da rede LSTM
-        private Tensor W_i, U_i, b_i; // Input Gate
-        private Tensor W_f, U_f, b_f; // Forget Gate
-        private Tensor W_c, U_c, b_c; // Cell Gate
-        private Tensor W_o, U_o, b_o; // Output Gate
-        private Tensor W_out, b_out; // Camada de Saída (linear + softmax)
+        private Tensor W_i, U_i, b_i;
+        private Tensor W_f, U_f, b_f;
+        private Tensor W_c, U_c, b_c;
+        private Tensor W_o, U_o, b_o;
+        private Tensor W_out, b_out;
 
         private readonly int inputSize, hiddenSize, outputSize, contextWindowSize;
 
-        // Campos OpenCL
-        private ComputeContext? _context;
-        private ComputeDevice? _device;
-        private ComputeCommandQueue? _queue;
-        private ComputeProgram? _program;
-        private ComputeKernel? _matmulKernel;
-        private ComputeKernel? _sigmoidKernel;
-        private ComputeKernel? _tanhKernel;
-        private ComputeKernel? _softmaxKernel;
-        private ComputeKernel? _elementwiseAddKernel;
-        private ComputeKernel? _elementwiseMultiplyKernel;
+    private ComputeContext? _context;
+    private ComputeDevice? _device;
+    private ComputeCommandQueue? _queue;
+    private ComputeProgram? _program;
+    private ComputeKernel? _matmulKernel;
+    private ComputeKernel? _sigmoidKernel;
+    private ComputeKernel? _tanhKernel;
+    private ComputeKernel? _elementwiseAddKernel;
+    private ComputeKernel? _elementwiseAddBroadcastKernel; // NOVO
+    private ComputeKernel? _elementwiseMultiplyKernel;
 
-        // Propriedades públicas para acesso aos Tensors internos
-        public Tensor W_i_Tensor => W_i;
-        public Tensor U_i_Tensor => U_i;
-        public Tensor b_i_Tensor => b_i;
-        public Tensor W_f_Tensor => W_f;
-        public Tensor U_f_Tensor => U_f;
-        public Tensor b_f_Tensor => b_f;
-        public Tensor W_c_Tensor => W_c;
-        public Tensor U_c_Tensor => U_c;
-        public Tensor b_c_Tensor => b_c;
-        public Tensor W_o_Tensor => W_o;
-        public Tensor U_o_Tensor => U_o;
-        public Tensor b_o_Tensor => b_o;
-        public Tensor W_out_Tensor => W_out;
-        public Tensor b_out_Tensor => b_out;
+    public Tensor W_i_Tensor => W_i;
+    public Tensor U_i_Tensor => U_i;
+    public Tensor b_i_Tensor => b_i;
+    public Tensor W_f_Tensor => W_f;
+    public Tensor U_f_Tensor => U_f;
+    public Tensor b_f_Tensor => b_f;
+    public Tensor W_c_Tensor => W_c;
+    public Tensor U_c_Tensor => U_c;
+    public Tensor b_c_Tensor => b_c;
+    public Tensor W_o_Tensor => W_o;
+    public Tensor U_o_Tensor => U_o;
+    public Tensor b_o_Tensor => b_o;
+    public Tensor W_out_Tensor => W_out;
+    public Tensor b_out_Tensor => b_out;
 
-        public int InputSize => inputSize;
-        public int HiddenSize => hiddenSize;
-        public int OutputSize => outputSize;
+    public int InputSize => inputSize;
+    public int HiddenSize => hiddenSize;
+    public int OutputSize => outputSize;
 
-        // Construtor principal para inicialização
-        public NeuralNetwork(int inputSize, int hiddenSize, int outputSize, int contextWindowSize)
-        {
-            this.inputSize = inputSize;
-            this.hiddenSize = hiddenSize;
-            this.outputSize = outputSize;
-            this.contextWindowSize = contextWindowSize;
+    public NeuralNetwork(int inputSize, int hiddenSize, int outputSize, int contextWindowSize)
+    {
+        this.inputSize = inputSize;
+        this.hiddenSize = hiddenSize;
+        this.outputSize = outputSize;
+        this.contextWindowSize = contextWindowSize;
 
-            // --- CORREÇÃO INICIA AQUI ---
-            // O tamanho do vocabulário (entrada para UM passo da LSTM) é o outputSize.
-            int vocabSize = outputSize;
+        int vocabSize = outputSize;
+        Random rand = new Random();
+        double sqrtFanInHidden = Math.Sqrt(2.0 / (vocabSize + hiddenSize));
+        double sqrtFanInRecurrent = Math.Sqrt(2.0 / hiddenSize);
 
-            Random rand = new Random();
-            // A inicialização de He deve usar o tamanho da entrada do passo (vocabSize), não da janela inteira (inputSize).
-            double sqrtFanInHidden = Math.Sqrt(2.0 / (vocabSize + hiddenSize));
-            double sqrtFanInRecurrent = Math.Sqrt(2.0 / hiddenSize);
+        W_i = new Tensor(InitializeWeights(vocabSize, hiddenSize, sqrtFanInHidden, rand), new int[] { vocabSize, hiddenSize });
+        U_i = new Tensor(InitializeWeights(hiddenSize, hiddenSize, sqrtFanInRecurrent, rand), new int[] { hiddenSize, hiddenSize });
+        b_i = new Tensor(new double[hiddenSize], new int[] { hiddenSize });
+        W_f = new Tensor(InitializeWeights(vocabSize, hiddenSize, sqrtFanInHidden, rand), new int[] { vocabSize, hiddenSize });
+        U_f = new Tensor(InitializeWeights(hiddenSize, hiddenSize, sqrtFanInRecurrent, rand), new int[] { hiddenSize, hiddenSize });
+        b_f = new Tensor(new double[hiddenSize], new int[] { hiddenSize });
+        W_c = new Tensor(InitializeWeights(vocabSize, hiddenSize, sqrtFanInHidden, rand), new int[] { vocabSize, hiddenSize });
+        U_c = new Tensor(InitializeWeights(hiddenSize, hiddenSize, sqrtFanInRecurrent, rand), new int[] { hiddenSize, hiddenSize });
+        b_c = new Tensor(new double[hiddenSize], new int[] { hiddenSize });
+        W_o = new Tensor(InitializeWeights(vocabSize, hiddenSize, sqrtFanInHidden, rand), new int[] { vocabSize, hiddenSize });
+        U_o = new Tensor(InitializeWeights(hiddenSize, hiddenSize, sqrtFanInRecurrent, rand), new int[] { hiddenSize, hiddenSize });
+        b_o = new Tensor(new double[hiddenSize], new int[] { hiddenSize });
+        W_out = new Tensor(InitializeWeights(hiddenSize, outputSize, Math.Sqrt(2.0 / hiddenSize), rand), new int[] { hiddenSize, outputSize });
+        b_out = new Tensor(new double[outputSize], new int[] { outputSize });
 
-            // As matrizes W multiplicam a entrada de um passo (x_t), então sua primeira dimensão deve ser vocabSize.
-            W_i = new Tensor(InitializeWeights(vocabSize, hiddenSize, sqrtFanInHidden, rand), new int[] { vocabSize, hiddenSize });
-            U_i = new Tensor(InitializeWeights(hiddenSize, hiddenSize, sqrtFanInRecurrent, rand), new int[] { hiddenSize, hiddenSize });
-            b_i = new Tensor(new double[hiddenSize], new int[] { hiddenSize });
-
-            W_f = new Tensor(InitializeWeights(vocabSize, hiddenSize, sqrtFanInHidden, rand), new int[] { vocabSize, hiddenSize });
-            U_f = new Tensor(InitializeWeights(hiddenSize, hiddenSize, sqrtFanInRecurrent, rand), new int[] { hiddenSize, hiddenSize });
-            b_f = new Tensor(new double[hiddenSize], new int[] { hiddenSize });
-
-            W_c = new Tensor(InitializeWeights(vocabSize, hiddenSize, sqrtFanInHidden, rand), new int[] { vocabSize, hiddenSize });
-            U_c = new Tensor(InitializeWeights(hiddenSize, hiddenSize, sqrtFanInRecurrent, rand), new int[] { hiddenSize, hiddenSize });
-            b_c = new Tensor(new double[hiddenSize], new int[] { hiddenSize });
-
-            W_o = new Tensor(InitializeWeights(vocabSize, hiddenSize, sqrtFanInHidden, rand), new int[] { vocabSize, hiddenSize });
-            U_o = new Tensor(InitializeWeights(hiddenSize, hiddenSize, sqrtFanInRecurrent, rand), new int[] { hiddenSize, hiddenSize });
-            b_o = new Tensor(new double[hiddenSize], new int[] { hiddenSize });
-            // --- FIM DA CORREÇÃO ---
-
-            W_out = new Tensor(InitializeWeights(hiddenSize, outputSize, Math.Sqrt(2.0 / hiddenSize), rand), new int[] { hiddenSize, outputSize });
-            b_out = new Tensor(new double[outputSize], new int[] { outputSize });
-
-            InitializeOpenCL();
-        }
+        InitializeOpenCL();
+    }
 
         // Construtor para carregar um modelo existente
         private NeuralNetwork(int inputSize, int hiddenSize, int outputSize, int contextWindowSize,
-            Tensor W_i, Tensor U_i, Tensor b_i,
-            Tensor W_f, Tensor U_f, Tensor b_f,
-            Tensor W_c, Tensor U_c, Tensor b_c,
-            Tensor W_o, Tensor U_o, Tensor b_o,
+            Tensor W_i, Tensor U_i, Tensor b_i, Tensor W_f, Tensor U_f, Tensor b_f,
+            Tensor W_c, Tensor U_c, Tensor b_c, Tensor W_o, Tensor U_o, Tensor b_o,
             Tensor W_out, Tensor b_out)
         {
-            this.inputSize = inputSize;
-            this.hiddenSize = hiddenSize;
-            this.outputSize = outputSize;
-            this.contextWindowSize = contextWindowSize;
-            this.W_i = W_i;
-            this.U_i = U_i;
-            this.b_i = b_i;
-            this.W_f = W_f;
-            this.U_f = U_f;
-            this.b_f = b_f;
-            this.W_c = W_c;
-            this.U_c = U_c;
-            this.b_c = b_c;
-            this.W_o = W_o;
-            this.U_o = U_o;
-            this.b_o = b_o;
-            this.W_out = W_out;
-            this.b_out = b_out;
-
+            this.inputSize = inputSize; this.hiddenSize = hiddenSize; this.outputSize = outputSize; this.contextWindowSize = contextWindowSize;
+            this.W_i = W_i; this.U_i = U_i; this.b_i = b_i; this.W_f = W_f; this.U_f = U_f; this.b_f = b_f;
+            this.W_c = W_c; this.U_c = U_c; this.b_c = b_c; this.W_o = W_o; this.U_o = U_o; this.b_o = b_o;
+            this.W_out = W_out; this.b_out = b_out;
             InitializeOpenCL();
         }
 
         private void InitializeOpenCL()
+    {
+        try
         {
-            try
+            var platform = ComputePlatform.Platforms.FirstOrDefault();
+            if (platform == null) { Console.WriteLine("Nenhuma plataforma OpenCL encontrada."); _context = null; return; }
+            var device = platform.Devices.FirstOrDefault(d => d.Type == ComputeDeviceTypes.Gpu) ?? platform.Devices.FirstOrDefault(d => d.Type == ComputeDeviceTypes.Cpu);
+            if (device == null) { Console.WriteLine("Nenhum dispositivo OpenCL (GPU/CPU) encontrado."); _context = null; return; }
+            
+            Console.WriteLine($"Usando dispositivo OpenCL: {device.Name}");
+            _device = device;
+            _context = new ComputeContext(new List<ComputeDevice> { _device }, null, null, IntPtr.Zero);
+            _queue = new ComputeCommandQueue(_context, _device, ComputeCommandQueueFlags.None);
+
+            string kernelPath = Path.Combine(AppContext.BaseDirectory, "Kernels", "MatrixOperations.cl");
+            if (!File.Exists(kernelPath))
             {
-                var platform = ComputePlatform.Platforms.FirstOrDefault();
-                if (platform == null) { _context = null; return; }
-
-                var device = platform.Devices.FirstOrDefault(d => d.Type == ComputeDeviceTypes.Gpu)
-                          ?? platform.Devices.FirstOrDefault(d => d.Type == ComputeDeviceTypes.Cpu);
-
-                if (device == null) { _context = null; return; }
-
-                _device = device;
-                _context = new ComputeContext(new List<ComputeDevice> { _device }, null, null, IntPtr.Zero);
-                _queue = new ComputeCommandQueue(_context, _device, ComputeCommandQueueFlags.None);
-
-                string kernelPath = Path.Combine(AppContext.BaseDirectory, "Kernels", "MatrixOperations.cl");
-                 if (!File.Exists(kernelPath))
-                {
-                    kernelPath = "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/Kernels/MatrixOperations.cl"; 
-                    if (!File.Exists(kernelPath))
-                    {
-                         throw new FileNotFoundException($"Arquivo de kernel OpenCL não encontrado: {kernelPath}");
-                    }
-                }
-                string kernelSource = File.ReadAllText(kernelPath);
-
-                _program = new ComputeProgram(_context, kernelSource);
-                _program.Build(null, null, null, IntPtr.Zero);
-
-                _matmulKernel = _program.CreateKernel("matmul_forward");
-                _sigmoidKernel = _program.CreateKernel("sigmoid_forward");
-                _tanhKernel = _program.CreateKernel("tanh_forward");
-                _softmaxKernel = _program.CreateKernel("softmax_forward");
-                _elementwiseAddKernel = _program.CreateKernel("elementwise_add_forward");
-                _elementwiseMultiplyKernel = _program.CreateKernel("elementwise_multiply");
+                kernelPath = "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/Kernels/MatrixOperations.cl";
+                if (!File.Exists(kernelPath)) throw new FileNotFoundException($"Arquivo de kernel OpenCL não encontrado: {kernelPath}");
             }
-            catch (Exception ex)
+            string kernelSource = File.ReadAllText(kernelPath);
+
+            _program = new ComputeProgram(_context, kernelSource);
+            _program.Build(null, null, null, IntPtr.Zero);
+
+            _matmulKernel = _program.CreateKernel("matmul_forward");
+            _sigmoidKernel = _program.CreateKernel("sigmoid_forward");
+            _tanhKernel = _program.CreateKernel("tanh_forward");
+            _elementwiseAddKernel = _program.CreateKernel("elementwise_add_forward");
+            _elementwiseAddBroadcastKernel = _program.CreateKernel("elementwise_add_broadcast_forward"); // NOVO
+            _elementwiseMultiplyKernel = _program.CreateKernel("elementwise_multiply");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Erro ao inicializar OpenCL: {ex.Message}. Revertendo para CPU.");
+            _context = null;
+        }
+    }
+        private Tensor ExecuteMatMulGpu(Tensor A, Tensor B)
+        {
+            Tensor A_expanded = (A.shape.Length == 1) ? new Tensor(A.GetData(), new int[] { 1, A.shape[0] }) : A;
+            Tensor B_expanded = (B.shape.Length == 1) ? new Tensor(B.GetData(), new int[] { B.shape[0], 1 }) : B;
+
+            int M = A_expanded.shape[0];
+            int K = A_expanded.shape[1];
+            int N = B_expanded.shape[1];
+            double[] resultData = new double[M * N];
+        
+            // CORREÇÃO: Determina o shape de saída corretamente (vetor ou matriz)
+            int[] resultShape = (M == 1) ? new int[] { N } : new int[] { M, N };
+
+            using (var bufferA = new ComputeBuffer<double>(_context, ComputeMemoryFlags.ReadOnly | ComputeMemoryFlags.CopyHostPointer, A_expanded.GetData()))
+            using (var bufferB = new ComputeBuffer<double>(_context, ComputeMemoryFlags.ReadOnly | ComputeMemoryFlags.CopyHostPointer, B_expanded.GetData()))
+            using (var bufferC = new ComputeBuffer<double>(_context, ComputeMemoryFlags.WriteOnly, resultData.Length))
             {
-                Console.WriteLine($"Erro ao inicializar OpenCL: {ex.Message}");
-                _context = null;
+                _matmulKernel.SetArgument(0, bufferA);
+                _matmulKernel.SetArgument(1, bufferB);
+                _matmulKernel.SetArgument(2, bufferC);
+                _matmulKernel.SetArgument(3, M);
+                _matmulKernel.SetArgument(4, K);
+                _matmulKernel.SetArgument(5, N);
+
+                _queue.Execute(_matmulKernel, null, new long[] { N, M }, null, null);
+                _queue.ReadFromBuffer(bufferC, ref resultData, true, null);
+                _queue.Finish();
             }
+            return new Tensor(resultData, resultShape);
+        }
+        
+        private Tensor ExecuteElementwiseGpu(ComputeKernel kernel, Tensor A, Tensor B)
+        {
+            if (!A.shape.SequenceEqual(B.shape)) throw new ArgumentException("Shapes devem ser idênticos para esta operação de GPU.");
+        
+            double[] resultData = new double[A.GetTotalSize()];
+            using (var bufferA = new ComputeBuffer<double>(_context, ComputeMemoryFlags.ReadOnly | ComputeMemoryFlags.CopyHostPointer, A.GetData()))
+            using (var bufferB = new ComputeBuffer<double>(_context, ComputeMemoryFlags.ReadOnly | ComputeMemoryFlags.CopyHostPointer, B.GetData()))
+            using (var bufferC = new ComputeBuffer<double>(_context, ComputeMemoryFlags.WriteOnly, resultData.Length))
+            {
+                kernel.SetArgument(0, bufferA);
+                kernel.SetArgument(1, bufferB);
+                kernel.SetArgument(2, bufferC);
+                _queue.Execute(kernel, null, new long[] { A.GetTotalSize() }, null, null);
+                _queue.ReadFromBuffer(bufferC, ref resultData, true, null);
+                _queue.Finish();
+            }
+            return new Tensor(resultData, A.GetShape());
+        }
+        
+        private (Tensor h_t, Tensor c_t, Tensor i_t, Tensor f_t, Tensor c_tilde, Tensor o_t) LSTMStep(Tensor x_t, Tensor h_prev, Tensor c_prev)
+    {
+        if (_context == null || _elementwiseAddBroadcastKernel == null)
+        {
+            Tensor matmul_Wi_xt = x_t.MatMul(W_i);
+            Tensor matmul_Ui_hprev = h_prev.MatMul(U_i);
+            Tensor i_t_cpu = matmul_Wi_xt.Add(matmul_Ui_hprev).Add(b_i).Apply(Sigmoid);
+            Tensor matmul_Wf_xt = x_t.MatMul(W_f);
+            Tensor matmul_Uf_hprev = h_prev.MatMul(U_f);
+            Tensor f_t_cpu = matmul_Wf_xt.Add(matmul_Uf_hprev).Add(b_f).Apply(Sigmoid);
+            Tensor matmul_Wc_xt = x_t.MatMul(W_c);
+            Tensor matmul_Uc_hprev = h_prev.MatMul(U_c);
+            Tensor c_tilde_cpu = matmul_Wc_xt.Add(matmul_Uc_hprev).Add(b_c).Apply(Tanh);
+            Tensor matmul_Wo_xt = x_t.MatMul(W_o);
+            Tensor matmul_Uo_hprev = h_prev.MatMul(U_o);
+            Tensor o_t_cpu = matmul_Wo_xt.Add(matmul_Uo_hprev).Add(b_o).Apply(Sigmoid);
+            Tensor c_t_cpu = f_t_cpu.ElementWiseMultiply(c_prev).Add(i_t_cpu.ElementWiseMultiply(c_tilde_cpu));
+            Tensor h_t_cpu = o_t_cpu.ElementWiseMultiply(c_t_cpu.Apply(Tanh));
+            return (h_t_cpu, c_t_cpu, i_t_cpu, f_t_cpu, c_tilde_cpu, o_t_cpu);
+        }
+        
+        Tensor matmul_Wi_xt_gpu = ExecuteMatMulGpu(x_t, W_i);
+        Tensor matmul_Ui_hprev_gpu = ExecuteMatMulGpu(h_prev, U_i);
+        Tensor add1_i = ExecuteElementwiseGpu(_elementwiseAddKernel, matmul_Wi_xt_gpu, matmul_Ui_hprev_gpu);
+        Tensor add2_i = ExecuteElementwiseAddBroadcastGpu(add1_i, b_i);
+        Tensor i_t = ExecuteActivationGpu(_sigmoidKernel, add2_i);
+
+        Tensor matmul_Wf_xt_gpu = ExecuteMatMulGpu(x_t, W_f);
+        Tensor matmul_Uf_hprev_gpu = ExecuteMatMulGpu(h_prev, U_f);
+        Tensor add1_f = ExecuteElementwiseGpu(_elementwiseAddKernel, matmul_Wf_xt_gpu, matmul_Uf_hprev_gpu);
+        Tensor add2_f = ExecuteElementwiseAddBroadcastGpu(add1_f, b_f);
+        Tensor f_t = ExecuteActivationGpu(_sigmoidKernel, add2_f);
+        
+        Tensor matmul_Wc_xt_gpu = ExecuteMatMulGpu(x_t, W_c);
+        Tensor matmul_Uc_hprev_gpu = ExecuteMatMulGpu(h_prev, U_c);
+        Tensor add1_c = ExecuteElementwiseGpu(_elementwiseAddKernel, matmul_Wc_xt_gpu, matmul_Uc_hprev_gpu);
+        Tensor add2_c = ExecuteElementwiseAddBroadcastGpu(add1_c, b_c);
+        Tensor c_tilde = ExecuteActivationGpu(_tanhKernel, add2_c);
+
+        Tensor matmul_Wo_xt_gpu = ExecuteMatMulGpu(x_t, W_o);
+        Tensor matmul_Uo_hprev_gpu = ExecuteMatMulGpu(h_prev, U_o);
+        Tensor add1_o = ExecuteElementwiseGpu(_elementwiseAddKernel, matmul_Wo_xt_gpu, matmul_Uo_hprev_gpu);
+        Tensor add2_o = ExecuteElementwiseAddBroadcastGpu(add1_o, b_o);
+        Tensor o_t = ExecuteActivationGpu(_sigmoidKernel, add2_o);
+
+        Tensor f_mul_c_prev = ExecuteElementwiseGpu(_elementwiseMultiplyKernel, f_t, c_prev);
+        Tensor i_mul_c_tilde = ExecuteElementwiseGpu(_elementwiseMultiplyKernel, i_t, c_tilde);
+        Tensor c_t = ExecuteElementwiseGpu(_elementwiseAddKernel, f_mul_c_prev, i_mul_c_tilde);
+        
+        Tensor tanh_c_t = ExecuteActivationGpu(_tanhKernel, c_t);
+        Tensor h_t = ExecuteElementwiseGpu(_elementwiseMultiplyKernel, o_t, tanh_c_t);
+
+        return (h_t, c_t, i_t, f_t, c_tilde, o_t);
+    }
+        
+        public Tensor ForwardLogits(Tensor input)
+        {
+            if (input.shape.Length != 1 || input.shape[0] != inputSize)
+            {
+                throw new ArgumentException($"O tensor de entrada deve ser unidimensional com tamanho {inputSize}. Recebido: {input.shape[0]}.");
+            }
+        
+            int vocabSize = outputSize;
+            double[] inputData = input.GetData();
+            Tensor[] inputSteps = new Tensor[contextWindowSize];
+            for (int t = 0; t < contextWindowSize; t++)
+            {
+                double[] stepData = new double[vocabSize];
+                Array.Copy(inputData, t * vocabSize, stepData, 0, vocabSize);
+                inputSteps[t] = new Tensor(stepData, new int[] { vocabSize });
+            }
+
+            Tensor h_t = new Tensor(new double[hiddenSize], new int[] { hiddenSize });
+            Tensor c_t = new Tensor(new double[hiddenSize], new int[] { hiddenSize });
+
+            for (int t = 0; t < contextWindowSize; t++)
+            {
+                (h_t, c_t, _, _, _, _) = LSTMStep(inputSteps[t], h_t, c_t);
+            }
+
+            if (_context != null)
+            {
+                Tensor matmul_Wout_ht = ExecuteMatMulGpu(h_t, W_out);
+                return ExecuteElementwiseAddBroadcastGpu(matmul_Wout_ht, b_out);
+            }
+            else
+            {
+                Tensor matmul_Wout_ht = h_t.MatMul(W_out);
+                return matmul_Wout_ht.Add(b_out);
+            }
+        }
+        
+        public void Dispose()
+        {
+            _matmulKernel?.Dispose(); _sigmoidKernel?.Dispose(); _tanhKernel?.Dispose();
+            _elementwiseAddKernel?.Dispose(); _elementwiseAddBroadcastKernel?.Dispose(); _elementwiseMultiplyKernel?.Dispose();
+            _program?.Dispose(); _queue?.Dispose(); _context?.Dispose();
+        }
+        
+        private Tensor ExecuteElementwiseAddBroadcastGpu(Tensor A, Tensor B_vec)
+        {
+            if (A.shape.Length != 2 || B_vec.shape.Length != 1 || A.shape[1] != B_vec.shape[0])
+                throw new ArgumentException("Shapes incompatíveis para broadcasting A[M,N] + B[N]");
+        
+            int M = A.shape[0];
+            int N = A.shape[1];
+            double[] resultData = new double[A.GetTotalSize()];
+
+            using (var bufferA = new ComputeBuffer<double>(_context, ComputeMemoryFlags.ReadOnly | ComputeMemoryFlags.CopyHostPointer, A.GetData()))
+            using (var bufferB = new ComputeBuffer<double>(_context, ComputeMemoryFlags.ReadOnly | ComputeMemoryFlags.CopyHostPointer, B_vec.GetData()))
+            using (var bufferC = new ComputeBuffer<double>(_context, ComputeMemoryFlags.WriteOnly, resultData.Length))
+            {
+                _elementwiseAddBroadcastKernel.SetArgument(0, bufferA);
+                _elementwiseAddBroadcastKernel.SetArgument(1, bufferB);
+                _elementwiseAddBroadcastKernel.SetArgument(2, bufferC);
+                _elementwiseAddBroadcastKernel.SetArgument(3, M);
+                _elementwiseAddBroadcastKernel.SetArgument(4, N);
+
+                _queue.Execute(_elementwiseAddBroadcastKernel, null, new long[] { N, M }, null, null);
+                _queue.ReadFromBuffer(bufferC, ref resultData, true, null);
+                _queue.Finish();
+            }
+            // A soma de um vetor a uma matriz não altera o shape da matriz
+            return new Tensor(resultData, A.GetShape());
         }
         
         public void Dispose()
@@ -277,7 +416,7 @@ namespace Core
             return new Tensor(outputData, new int[] { outputSize });
         }
 
-        public double TrainEpoch(Tensor[] inputs, Tensor[] targets, double learningRate)
+        public double TrainEpoch(List<(Tensor input, Tensor target)> dataset, double learningRate)
         {
             double epochLoss = 0;
             int vocabSize = outputSize; // O mesmo que outputSize
@@ -298,7 +437,7 @@ namespace Core
             double[] grad_W_out_data_acc = new double[hiddenSize * outputSize];
             double[] grad_b_out_data_acc = new double[outputSize];
 
-            for (int j = 0; j < inputs.Length; j++)
+            foreach (var (input, target) in dataset)
             {
                 Array.Clear(grad_W_i_acc, 0, grad_W_i_acc.Length);
                 Array.Clear(grad_U_i_acc, 0, grad_U_i_acc.Length);
@@ -315,7 +454,7 @@ namespace Core
                 Array.Clear(grad_W_out_data_acc, 0, grad_W_out_data_acc.Length);
                 Array.Clear(grad_b_out_data_acc, 0, grad_b_out_data_acc.Length);
 
-                double[] inputData = inputs[j].GetData();
+                double[] inputData = input.GetData();
                 Tensor[] inputSteps = new Tensor[contextWindowSize];
                 for (int t = 0; t < contextWindowSize; t++)
                 {
@@ -341,10 +480,10 @@ namespace Core
                     (h_ts[t], c_ts_all[t], i_ts[t], f_ts[t], c_tildes[t], o_ts[t]) = LSTMStep(inputSteps[t], h_prev, c_prev);
                 }
 
-                Tensor output = Forward(inputs[j]);
+                Tensor output = Forward(input);
                 for (int o = 0; o < outputSize; o++)
                 {
-                    if (targets[j].Infer(new int[] { o }) == 1.0)
+                    if (target.Infer(new int[] { o }) == 1.0)
                     {
                         epochLoss += -Math.Log(output.Infer(new int[] { o }) + 1e-9);
                         break;
@@ -354,7 +493,7 @@ namespace Core
                 double[] grad_output_logits = new double[outputSize];
                 for (int o = 0; o < outputSize; o++)
                 {
-                    grad_output_logits[o] = output.Infer(new int[] { o }) - targets[j].Infer(new int[] { o });
+                    grad_output_logits[o] = output.Infer(new int[] { o }) - target.Infer(new int[] { o });
                 }
 
                 for (int o = 0; o < outputSize; o++)
@@ -449,7 +588,7 @@ namespace Core
                 UpdateWeights(b_o, grad_b_o_acc, learningRate);
             }
 
-            return epochLoss / inputs.Length;
+            return epochLoss / dataset.Count;
         }
 
         private void UpdateWeights(Tensor tensor, double[] grad, double learningRate)

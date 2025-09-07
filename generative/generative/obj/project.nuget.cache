@@ -1,10 +1,10 @@
 {
   "version": 2,
-  "dgSpecHash": "igMqe4YjrqA=",
+  "dgSpecHash": "0iMjvDOOXwY=",
   "success": true,
-  "projectFilePath": "/home/mplopes/Documentos/generative/generative/generative.csproj",
+  "projectFilePath": "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/generative.csproj",
   "expectedPackageFiles": [
-    "/home/mplopes/.nuget/packages/cloo.clsharp/1.0.1/cloo.clsharp.1.0.1.nupkg.sha512",
+    "/home/mplopes/.nuget/packages/cloo.clsharp/1.0.0/cloo.clsharp.1.0.0.nupkg.sha512",
     "/home/mplopes/.nuget/packages/htmlagilitypack/1.12.2/htmlagilitypack.1.12.2.nupkg.sha512",
     "/home/mplopes/.nuget/packages/microsoft.aspnetcore.openapi/8.0.16/microsoft.aspnetcore.openapi.8.0.16.nupkg.sha512",
     "/home/mplopes/.nuget/packages/microsoft.extensions.apidescription.server/6.0.5/microsoft.extensions.apidescription.server.6.0.5.nupkg.sha512",

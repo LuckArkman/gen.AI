@@ -11,7 +11,6 @@ using System.Linq;
 using System.Text.Json;
 using BinaryTreeSwapFile;
 using Services;
-using Services; // CORRIGIDO: Namespace correto para seus serviços customizados
 
 namespace GenerativeAIAPI.Controllers
 {
@@ -19,7 +18,8 @@ namespace GenerativeAIAPI.Controllers
     [Route("api/[controller]")]
     public class GenerativeAIController : ControllerBase
     {
-        private readonly string modelDir; // Agora readonly
+        readonly ListenerService _listenerService;
+        private readonly string modelDir;
         private readonly string modelPath;
         private readonly string vocabPath;
         private NeuralNetwork? model;
@@ -28,29 +28,32 @@ namespace GenerativeAIAPI.Controllers
         private const int HiddenSize = 256;
         private readonly string padToken = "[PAD]";
         private readonly int contextWindowSize;
-        private BinaryTreeFileStorage _memoryStorage;
+        private BinaryTreeSwapFile.BinaryTreeFileStorage _memoryStorage;
         private readonly TextProcessorService _textProcessorService;
         private readonly string _memoryFilePath;
         private readonly ContextManager _contextManager;
-        // private readonly ChatGPTService _chatGPTService; // REMOVIDO: Gerenciado por KnowledgeAcquisitionService
         private readonly KnowledgeAcquisitionService _knowledgeAcquisitionService;
-        // private readonly GenerateRequest _generateRequest; // REMOVIDO: Usar o parâmetro 'request' do método Generate
+        Queue<SaveContext> _ContextAdded = new();
+        public event EventHandler<SaveContext>? ContextAdded;
 
-        private const double KnowledgeInternalizationLearningRate = 0.00001;
+        private const double KnowledgeInternalizationLearningRate = 0.001;
 
         public GenerativeAIController(IConfiguration configuration,
             ContextManager contextManager,
             TextProcessorService textProcessorService,
-            KnowledgeAcquisitionService knowledgeAcquisitionService)
+            KnowledgeAcquisitionService knowledgeAcquisitionService,
+            ListenerService listenerService) // ListenerService injetado
         {
-            modelDir = configuration["ModelSettings:ModelDirectory"] ?? "/home/mplopes/Documentos/generative/generative/"; // CORRIGIDO: Inicializa modelDir primeiro
+            modelDir = configuration["ModelSettings:ModelDirectory"] ??
+                       "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/"; // CORRIGIDO: Inicializa modelDir primeiro
 
             _contextManager = contextManager;
             _textProcessorService = textProcessorService;
             _knowledgeAcquisitionService = knowledgeAcquisitionService;
+            _listenerService = listenerService; // Atribui o serviço
 
             _memoryFilePath = configuration["ModelSettings:MemoryFilePath"] ?? Path.Combine(modelDir, "AIModelMem.dat");
-            _memoryStorage = new BinaryTreeFileStorage(_memoryFilePath);
+            _memoryStorage = new BinaryTreeSwapFile.BinaryTreeFileStorage(_memoryFilePath);
             if (!System.IO.File.Exists(_memoryFilePath) ||
                 new FileInfo(_memoryFilePath).Length < sizeof(long) + TreeNode.NodeSize)
             {
@@ -102,28 +105,6 @@ namespace GenerativeAIAPI.Controllers
                 Console.WriteLine(
                     "Modelo ou vocabulário não encontrados na inicialização do controlador. Treine o modelo primeiro.");
             }
-        }
-
-        private double InternalizeKnowledgeIntoModel(string knowledgeText)
-        {
-            if (model == null || tokenToIndex.Count == 0)
-            {
-                Console.WriteLine("Modelo ou vocabulário não inicializados para internalizar conhecimento.");
-                return 0;
-            }
-
-            var (inputs, targets) = PrepareDataset(knowledgeText, contextWindowSize);
-            if (inputs.Length == 0)
-            {
-                Console.WriteLine("Dados de conhecimento insuficientes para internalização.");
-                return 0;
-            }
-
-            Console.WriteLine($"Internalizando {inputs.Length} sequências de conhecimento no modelo...");
-            double loss = model.TrainEpoch(inputs, targets, KnowledgeInternalizationLearningRate);
-            Console.WriteLine($"Perda na internalização de conhecimento: {loss:F4}");
-            model.SaveModel(modelPath);
-            return loss;
         }
 
         private bool IsValidText(string? text)
@@ -186,12 +167,13 @@ namespace GenerativeAIAPI.Controllers
                 {
                     Console.WriteLine(
                         $"Inicializando novo modelo com VocabSize: {vocabSize}, ContextWindowSize: {requestContextWindowSize}");
-                    model = new NeuralNetwork(vocabSize * requestContextWindowSize, HiddenSize, vocabSize, requestContextWindowSize);
+                    model = new NeuralNetwork(vocabSize * requestContextWindowSize, HiddenSize, vocabSize,
+                        requestContextWindowSize);
                 }
 
-                var (inputs, targets) = PrepareDataset(request.TextData, requestContextWindowSize);
+                var dataset = _listenerService.PrepareDataset(request.TextData, requestContextWindowSize);
 
-                if (inputs.Length == 0)
+                if (dataset.Count == 0)
                 {
                     return BadRequest(new
                         { Error = "Dados de treinamento insuficientes para a ContextWindowSize especificada." });
@@ -204,7 +186,7 @@ namespace GenerativeAIAPI.Controllers
 
                 for (int epoch = 0; epoch < epochs; epoch++)
                 {
-                    double epochLoss = model.TrainEpoch(inputs, targets, learningRate);
+                    double epochLoss = model.TrainEpoch(dataset, learningRate);
                     losses.Add(epochLoss);
                     totalLoss += epochLoss;
                     Console.WriteLine($"Época {epoch + 1}/{epochs}, Perda: {epochLoss:F4}");
@@ -261,21 +243,24 @@ namespace GenerativeAIAPI.Controllers
                         { Error = "Os dados de teste contêm tokens não presentes no vocabulário de treinamento." });
                 }
 
-                var (inputs, targets) = PrepareDataset(request.TextData, request.ContextWindowSize);
+                // --- CORREÇÃO AQUI ---
+                // 1. Obter a lista de tuplas em uma única variável.
+                var dataset = _listenerService.PrepareDataset(request.TextData, request.ContextWindowSize);
 
-                if (inputs.Length == 0)
+                if (dataset.Count == 0)
                 {
                     return BadRequest(new
                         { Error = "Dados de teste insuficientes para a ContextWindowSize especificada." });
                 }
 
                 double totalLoss = 0;
-                for (int i = 0; i < inputs.Length; i++)
+                // 2. Iterar sobre a lista de tuplas.
+                foreach (var (input, target) in dataset)
                 {
-                    Tensor output = model.Forward(inputs[i]);
+                    Tensor output = model.Forward(input);
                     for (int o = 0; o < tokenToIndex.Count; o++)
                     {
-                        if (targets[i].Infer(new int[] { o }) == 1.0)
+                        if (target.Infer(new int[] { o }) == 1.0)
                         {
                             double outputValue = output.Infer(new int[] { o });
                             totalLoss += -Math.Log(outputValue + 1e-9);
@@ -284,7 +269,8 @@ namespace GenerativeAIAPI.Controllers
                     }
                 }
 
-                double averageLoss = inputs.Length > 0 ? totalLoss / inputs.Length : 0;
+                // 3. Calcular a média com base no tamanho da lista.
+                double averageLoss = dataset.Count > 0 ? totalLoss / dataset.Count : 0;
                 return Ok(new { Message = "Teste concluído", AverageLoss = averageLoss });
             }
             catch (Exception ex)
@@ -296,6 +282,7 @@ namespace GenerativeAIAPI.Controllers
         [HttpPost("generate")]
         public async Task<IActionResult> Generate([FromBody] GenerateRequest request)
         {
+            string newSummary = "";
             Console.WriteLine($"UserInput : {request.SeedText} >> SequenceLength :" +
                               $" {request.SequenceLength} >> Length : {request.Length} >> Temperature : {request.Temperature} >>" +
                               $"ContextWindowSize : {request.ContextWindowSize}");
@@ -375,8 +362,7 @@ namespace GenerativeAIAPI.Controllers
 
                         ExpandVocabularyAndAdaptModel(combinedExternalContent);
 
-                        string newSummary = _textProcessorService.Summarize(combinedExternalContent);
-                        InternalizeKnowledgeIntoModel(newSummary);
+                        newSummary = _textProcessorService.Summarize(combinedExternalContent);
 
                         ContextInfo contextToStore = storedContext ?? new ContextInfo
                         {
@@ -393,7 +379,8 @@ namespace GenerativeAIAPI.Controllers
                             contextToStore.Summary = newSummary;
                             contextToStore.ExternalLastUpdatedTicks = DateTime.UtcNow.Ticks;
 
-                            byte[] serializedData = Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(contextToStore));
+                            byte[] serializedData =
+                                Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(contextToStore));
                             if (serializedData.Length > TreeNode.MaxDataSize)
                             {
                                 Console.WriteLine(
@@ -402,17 +389,14 @@ namespace GenerativeAIAPI.Controllers
                             }
 
                             long offsetToUpdateOrInsert = _contextManager.FindContextOffsetByTopic(topic);
-                            if (offsetToUpdateOrInsert != -1)
+                            var _new = new SaveContext()
                             {
-                                _memoryStorage.UpdateData(offsetToUpdateOrInsert,
-                                    Encoding.UTF8.GetString(serializedData));
-                            }
-                            else
-                            {
-                                _memoryStorage.Insert(Encoding.UTF8.GetString(serializedData));
-                            }
-
-                            _memoryStorage.CleanUnusedNodes(TimeSpan.FromDays(30));
+                                offsetToUpdateOrInsert = offsetToUpdateOrInsert,
+                                serializedData = serializedData,
+                                newSummary = newSummary
+                            };
+                            _ContextAdded.Enqueue(_new);
+                            ContextAdded!.Invoke(this, _new);
                         }
                         else
                         {
@@ -435,8 +419,9 @@ namespace GenerativeAIAPI.Controllers
                 string effectiveSeed = string.IsNullOrEmpty(enrichedContext)
                     ? request.SeedText
                     : $"{request.SeedText}. Contexto relevante: {enrichedContext}";
-                
-                generatedTextBuilder.Append(effectiveSeed);
+
+                if (!string.IsNullOrWhiteSpace(newSummary)) generatedTextBuilder.Append(newSummary);
+                if (string.IsNullOrWhiteSpace(newSummary)) generatedTextBuilder.Append(enrichedContext);
 
                 List<string> currentTokens = TokenizeTextForWindow(effectiveSeed);
                 while (currentTokens.Count < request.ContextWindowSize)
@@ -484,7 +469,8 @@ namespace GenerativeAIAPI.Controllers
                     bool lastCharIsSpecialChar =
                         generatedTextBuilder.Length > 0 && specialChars.Contains(generatedTextBuilder[^1].ToString());
 
-                    if (!isSpecialChar && generatedTextBuilder.Length > 0 && generatedTextBuilder[^1] != ' ' && !lastCharIsSpecialChar)
+                    if (!isSpecialChar && generatedTextBuilder.Length > 0 && generatedTextBuilder[^1] != ' ' &&
+                        !lastCharIsSpecialChar)
                     {
                         generatedTextBuilder.Append(" ");
                     }
@@ -509,16 +495,15 @@ namespace GenerativeAIAPI.Controllers
                     finalGeneratedText = char.ToUpper(finalGeneratedText[0]) + finalGeneratedText.Substring(1);
 
                 await _contextManager.StoreConversationContext(request.SeedText, finalGeneratedText);
-                Console.WriteLine($"AI response : {finalGeneratedText}");
+                Console.WriteLine($"AI response : {enrichedContext}");
 
-                return Ok(finalGeneratedText);
+                return Ok($"AI response : {enrichedContext}");
             }
             catch (Exception ex)
             {
                 return StatusCode(500, new { Error = $"Falha na geração: {ex.Message}" });
             }
         }
-
 
         private void ExpandVocabularyAndAdaptModel(string newTextContent)
         {
@@ -594,7 +579,7 @@ namespace GenerativeAIAPI.Controllers
                         }
                     }
                 }
-                
+
                 newModel.U_i_Tensor.SetData(model.U_i_Tensor.GetData());
                 newModel.U_f_Tensor.SetData(model.U_f_Tensor.GetData());
                 newModel.U_c_Tensor.SetData(model.U_c_Tensor.GetData());
@@ -624,7 +609,8 @@ namespace GenerativeAIAPI.Controllers
 
                 for (int oldVocabIdx = 0; oldVocabIdx < oldVocabSize; oldVocabIdx++)
                 {
-                    if (oldVocabIdx < model.b_out_Tensor.GetData().Length && oldVocabIdx < newModel.b_out_Tensor.GetData().Length)
+                    if (oldVocabIdx < model.b_out_Tensor.GetData().Length &&
+                        oldVocabIdx < newModel.b_out_Tensor.GetData().Length)
                     {
                         double[] oldBoutData = model.b_out_Tensor.GetData();
                         double[] newBoutData = newModel.b_out_Tensor.GetData();
@@ -632,7 +618,7 @@ namespace GenerativeAIAPI.Controllers
                         newModel.b_out_Tensor.SetData(newBoutData);
                     }
                 }
-                
+
                 model?.Dispose();
                 model = newModel;
                 Console.WriteLine("Modelo adaptado com sucesso ao novo vocabulário.");
@@ -644,7 +630,7 @@ namespace GenerativeAIAPI.Controllers
                 Console.WriteLine("Vocabulário não expandiu, nenhuma adaptação de modelo necessária.");
             }
         }
-        
+
         [HttpPost("summarize")]
         public async Task<IActionResult> Summarize([FromBody] SummaryRequest request)
         {
@@ -655,12 +641,12 @@ namespace GenerativeAIAPI.Controllers
                     return BadRequest(new { Error = "TextToSummarize não pode estar vazio." });
                 }
 
-                string generatedSummary; 
+                string generatedSummary;
 
                 Console.WriteLine("Solicitando resumo inteligente ao serviço de aquisição de conhecimento...");
-                var summaryContentParts = await _knowledgeAcquisitionService.GetSummarizationFromExternalService( 
-                    $"Summarize the following text: {request.TextToSummarize}", request.SummaryLengthWords * 2 ?? 500); 
-                
+                var summaryContentParts = await _knowledgeAcquisitionService.GetSummarizationFromExternalService(
+                    $"Summarize the following text: {request.TextToSummarize}", request.SummaryLengthWords * 2 ?? 500);
+
                 generatedSummary = string.Join(" ", summaryContentParts);
 
                 if (string.IsNullOrEmpty(generatedSummary))
@@ -671,7 +657,6 @@ namespace GenerativeAIAPI.Controllers
                 }
 
                 ExpandVocabularyAndAdaptModel(request.TextToSummarize);
-                InternalizeKnowledgeIntoModel(generatedSummary);
 
                 string contextTopic = _textProcessorService.ExtractMainTopic(request.TextToSummarize);
                 ContextInfo summaryContext = new ContextInfo
@@ -683,7 +668,8 @@ namespace GenerativeAIAPI.Controllers
                     ExternalLastUpdatedTicks = DateTime.UtcNow.Ticks
                 };
 
-                byte[] serializedData = Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(summaryContext));
+                byte[] serializedData =
+                    Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(summaryContext));
                 if (serializedData.Length > TreeNode.MaxDataSize)
                 {
                     Array.Resize(ref serializedData, TreeNode.MaxDataSize);
@@ -947,56 +933,6 @@ namespace GenerativeAIAPI.Controllers
                 indexToToken = new List<string>();
                 throw;
             }
-        }
-
-        private (Tensor[] inputs, Tensor[] targets) PrepareDataset(string text, int currentContextWindowSize)
-        {
-            var inputs = new List<Tensor>();
-            var targets = new List<Tensor>();
-
-            var specialChars = new[] { '.', ',', '!', '?', ':', ';', '"', '\'', '-', '(', ')' };
-            var specialCharPattern = string.Join("|", specialChars.Select(c => Regex.Escape(c.ToString())));
-            var pattern = $@"(\p{{L}}+|\p{{N}}+|{specialCharPattern})";
-
-            var matches = Regex.Matches(text.ToLower(), pattern);
-            var tokens = matches.Select(m => m.Value).Where(t => !string.IsNullOrEmpty(t)).ToArray();
-
-            var paddedTokens = new List<string>();
-            for (int k = 0; k < currentContextWindowSize; k++)
-            {
-                paddedTokens.Add(padToken);
-            }
-
-            paddedTokens.AddRange(tokens);
-
-            for (int i = 0; i < paddedTokens.Count - currentContextWindowSize; i++)
-            {
-                string[] currentWindowTokens = paddedTokens.Skip(i).Take(currentContextWindowSize).ToArray();
-                string nextToken = paddedTokens[i + currentContextWindowSize];
-
-                if (!tokenToIndex.ContainsKey(nextToken) || !currentWindowTokens.All(t => tokenToIndex.ContainsKey(t)))
-                {
-                    Console.WriteLine(
-                        $"Sequência ignorada no dataset (índice {i}): tokens ausentes no vocabulário. Próximo Token: '{nextToken}', Janela: '{string.Join(" ", currentWindowTokens)}'");
-                    continue;
-                }
-
-                double[] inputData = new double[tokenToIndex.Count * currentContextWindowSize];
-                for (int k = 0; k < currentContextWindowSize; k++)
-                {
-                    int tokenVocabIndex = tokenToIndex[currentWindowTokens[k]];
-                    int offset = k * tokenToIndex.Count;
-                    inputData[offset + tokenVocabIndex] = 1.0;
-                }
-
-                inputs.Add(new Tensor(inputData, new int[] { tokenToIndex.Count * currentContextWindowSize }));
-
-                double[] targetData = new double[tokenToIndex.Count];
-                targetData[tokenToIndex[nextToken]] = 1.0;
-                targets.Add(new Tensor(targetData, new int[] { tokenToIndex.Count }));
-            }
-
-            return (inputs.ToArray(), targets.ToArray());
         }
 
         private List<string> TokenizeTextForWindow(string text)

@@ -21,6 +21,7 @@ public class Program
             var builder = WebApplication.CreateBuilder(args);
 
             // Adiciona serviços mínimos para o Trainer
+            //builder.Services.AddHostedService<ListenerService>();
             builder.Services.AddSingleton<TextProcessorService>();
             builder.Services.AddSingleton(provider =>
             {
@@ -100,8 +101,8 @@ public class Program
         {
             Console.WriteLine($"Iniciando modo de treinamento (época inicial: {startEpoch}, total de épocas: {totalEpochs}, janela de contexto: {contextWindowSize}, tamanho do chunk: {chunkSize})...");
 
-            string datasetPath = configuration["TrainingSettings:DatasetPath"] ?? "/home/mplopes/Documentos/generative/generative/output/code";
-            string modelDir = configuration["ModelSettings:ModelDirectory"] ?? "/home/mplopes/Documentos/generative/generative/"; // ModelDir lido da config
+            string datasetPath = configuration["TrainingSettings:DatasetPath"] ?? "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/output/code";
+            string modelDir = configuration["ModelSettings:ModelDirectory"] ?? "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/"; // ModelDir lido da config
             string modelPathTemplate = Path.Combine(modelDir, "model.json"); 
             string vocabPath = Path.Combine(modelDir, "vocab.txt");
             int hiddenSize = configuration.GetValue<int>("ModelSettings:HiddenSize", 256);

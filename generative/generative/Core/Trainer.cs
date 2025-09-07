@@ -24,12 +24,12 @@ namespace Core
         private readonly string padToken = "[PAD]";
         private readonly string logPath; // Necessário para logar treinamento
         private readonly TextProcessorService _textProcessorService;
-        private readonly BinaryTreeFileStorage _memoryStorage;
+        private readonly BinaryTreeSwapFile.BinaryTreeFileStorage _memoryStorage;
         private readonly int _knowledgeSummaryLength = 200;
 
         public Trainer(string datasetPath, string modelPathTemplate, string vocabPath,
             int hiddenSize, int sequenceLength, double learningRate, int epochs,
-            TextProcessorService textProcessorService, BinaryTreeFileStorage memoryStorage)
+            TextProcessorService textProcessorService, BinaryTreeSwapFile.BinaryTreeFileStorage memoryStorage)
         {
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
@@ -393,7 +393,6 @@ namespace Core
             }
         }
 
-        // CORRIGIDO: Adicionado parâmetro 'epoch'
         private void ProcessChunk(string chunkText, ref double totalLoss, int chunkIndex, int epoch)
         {
             if (string.IsNullOrEmpty(chunkText))
@@ -401,9 +400,9 @@ namespace Core
                 Console.WriteLine($"Chunk {chunkIndex} ignorado: chunk vazio.");
                 return;
             }
-            // CORRIGIDO: PrepareDataset agora aceita contextWindowSize
-            var (inputs, targets) = PrepareDataset(chunkText, contextWindowSize); 
-            if (inputs.Length == 0 || targets.Length == 0)
+            
+            var dataset = PrepareDataset(chunkText, contextWindowSize); 
+            if (dataset.Count == 0)
             {
                 Console.WriteLine($"Chunk {chunkIndex} processado, mas não gerou dados de treinamento válidos (sequências insuficientes ou tokens ausentes no vocabulário).");
                 return;
@@ -421,7 +420,7 @@ namespace Core
                 throw new InvalidOperationException("Incompatibilidade entre o modelo e o vocabulário fixo/ContextWindowSize durante o treinamento.");
             }
 
-            double chunkLoss = model.TrainEpoch(inputs, targets, learningRate);
+            double chunkLoss = model.TrainEpoch(dataset, learningRate);
             totalLoss += chunkLoss;
 
             // --- NOVO: Armazenar conhecimento do chunk na memória virtual ---
@@ -463,11 +462,9 @@ namespace Core
             File.AppendAllText(logPath, logMessage + "\n");
         }
 
-        // CORRIGIDO: Adicionado parâmetro 'currentContextWindowSize'
-        private (Tensor[] inputs, Tensor[] targets) PrepareDataset(string text, int currentContextWindowSize)
+        private List<(Tensor input, Tensor target)> PrepareDataset(string text, int currentContextWindowSize)
         {
-            var inputs = new List<Tensor>();
-            var targets = new List<Tensor>();
+            var dataset = new List<(Tensor input, Tensor target)>();
 
             var specialChars = new[] { '.', ',', '!', '?', ':', ';', '"', '\'', '-', '(', ')' };
             var specialCharPattern = string.Join("|", specialChars.Select(c => Regex.Escape(c.ToString())));
@@ -501,14 +498,16 @@ namespace Core
                     int offset = k * tokenToIndex.Count;
                     inputData[offset + tokenVocabIndex] = 1.0;
                 }
-                inputs.Add(new Tensor(inputData, [tokenToIndex.Count * currentContextWindowSize]));
+                var inputTensor = new Tensor(inputData, [tokenToIndex.Count * currentContextWindowSize]);
 
                 double[] targetData = new double[tokenToIndex.Count];
                 targetData[tokenToIndex[nextToken]] = 1.0;
-                targets.Add(new Tensor(targetData, new int[] { tokenToIndex.Count }));
+                var targetTensor = new Tensor(targetData, new int[] { tokenToIndex.Count });
+
+                dataset.Add((inputTensor, targetTensor));
             }
 
-            return (inputs.ToArray(), targets.ToArray());
+            return dataset;
         }
 
         private void SaveVocabulary(string vocabPath)

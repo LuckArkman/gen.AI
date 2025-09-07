@@ -1,5 +1,3 @@
-// GenerativeAIAPI/Startup.cs (ou Hosts/Startup.cs se for o nome do seu projeto)
-
 using Microsoft.AspNetCore.Builder; // Para IApplicationBuilder
 using Microsoft.AspNetCore.Hosting; // Para IWebHostEnvironment
 using Microsoft.Extensions.Configuration; // Para IConfiguration
@@ -13,7 +11,7 @@ using System.Linq; // Para FirstOrDefault (se Cloo estiver envolvido na startup)
 using Core; // Se NeuralNetwork ou outros tipos Core forem usados na startup
 using Models; // Se modelos como ContextInfo forem usados na startup
 using BinaryTreeSwapFile; // Para BinaryTreeFileStorage
-using Services; // <-- O namespace correto para seus serviços customizados
+using Services;
 
 namespace Hosts // ou o namespace correto para a classe Startup da API
 {
@@ -48,10 +46,8 @@ namespace Hosts // ou o namespace correto para a classe Startup da API
             
             // TextProcessorService (depende apenas da própria lógica)
             services.AddSingleton<TextProcessorService>();
-
-            // ChatGPTService (usa HttpClient, então usa AddHttpClient<T>)
-            services.AddHttpClient<ChatGPTService>(); 
-            services.AddHttpClient<GeminiService>(); 
+            
+            services.AddHttpClient<GeminiService>();
             
             // GoogleSearchService (usa HttpClient, então usa AddHttpClient<T>)
             services.AddHttpClient<GoogleSearchService>(); 
