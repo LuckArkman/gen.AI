@@ -182,7 +182,10 @@ namespace Core
                                 chunkCount++;
                                 string chunkText = string.Join("\n", lines);
                                 ProcessChunk(chunkText, ref totalLoss, chunkCount, epoch); // CORRIGIDO: Passa 'epoch'
-                                GC.Collect();
+                                if (chunkCount % 10 == 0)
+                                {
+                                    GC.Collect(GC.MaxGeneration, GCCollectionMode.Optimized, blocking: false, compacting: false);
+                                }
                             }
                         }
                     }
@@ -197,7 +200,6 @@ namespace Core
                     var logMessage = $"Época {epoch}/{epochs} concluída. Perda média: {averageLoss:F4}, Total de chunks processados: {chunkCount}, Tamanho do vocabulário: {tokenToIndex.Count}";
                     Console.WriteLine(logMessage);
                     File.AppendAllText(logPath, logMessage + "\n");
-                    // Salva o modelo no final de cada época (ou em intervalos, dependendo da estratégia)
                     model.SaveModel(modelPathTemplate); // Salva no arquivo padrão 'model.json'
                 }
 
@@ -433,7 +435,7 @@ namespace Core
             totalLoss += chunkLoss;
 
             // --- NOVO: Armazenar conhecimento do chunk na memória virtual ---
-            if (epoch == 1 ) // Exemplo: Armazenar a cada 10 chunks na primeira época
+            if (epoch == 1) // Exemplo: Armazenar a cada 10 chunks na primeira época
             {
                 Console.WriteLine($"Armazenando resumo do chunk {chunkIndex} na memória virtual...");
                 string chunkTopic = _textProcessorService.ExtractMainTopic(chunkText);
@@ -469,54 +471,6 @@ namespace Core
             string logMessage = $"Época {epoch}/{epochs}, Chunk {chunkIndex} processado, Perda: {chunkLoss:F4}";
             Console.WriteLine(logMessage);
             File.AppendAllText(logPath, logMessage + "\n");
-        }
-
-        private List<(Tensor input, Tensor target)> PrepareDataset(string text, int currentContextWindowSize)
-        {
-            var dataset = new List<(Tensor input, Tensor target)>();
-
-            var specialChars = new[] { '.', ',', '!', '?', ':', ';', '"', '\'', '-', '(', ')' };
-            var specialCharPattern = string.Join("|", specialChars.Select(c => Regex.Escape(c.ToString())));
-            var pattern = $@"(\p{{L}}+|\p{{N}}+|{specialCharPattern})";
-            
-            var matches = Regex.Matches(text.ToLower(), pattern);
-            var tokens = matches.Select(m => m.Value).Where(t => !string.IsNullOrEmpty(t)).ToArray();
-
-            var paddedTokens = new List<string>();
-            for (int k = 0; k < currentContextWindowSize; k++)
-            {
-                paddedTokens.Add(padToken);
-            }
-            paddedTokens.AddRange(tokens);
-
-            for (int i = 0; i < paddedTokens.Count - currentContextWindowSize; i++)
-            {
-                string[] currentWindowTokens = paddedTokens.Skip(i).Take(currentContextWindowSize).ToArray();
-                string nextToken = paddedTokens[i + currentContextWindowSize];
-
-                if (!tokenToIndex.ContainsKey(nextToken) || !currentWindowTokens.All(t => tokenToIndex.ContainsKey(t)))
-                {
-                    Console.WriteLine($"Sequência ignorada no dataset (índice {i}): tokens ausentes no vocabulário fixo. Token de predição: '{nextToken}', Sequência de entrada: '{string.Join(" ", currentWindowTokens)}'");
-                    continue;
-                }
-
-                double[] inputData = new double[tokenToIndex.Count * currentContextWindowSize];
-                for (int k = 0; k < currentContextWindowSize; k++)
-                {
-                    int tokenVocabIndex = tokenToIndex[currentWindowTokens[k]];
-                    int offset = k * tokenToIndex.Count;
-                    inputData[offset + tokenVocabIndex] = 1.0;
-                }
-                var inputTensor = new Tensor(inputData, [tokenToIndex.Count * currentContextWindowSize]);
-
-                double[] targetData = new double[tokenToIndex.Count];
-                targetData[tokenToIndex[nextToken]] = 1.0;
-                var targetTensor = new Tensor(targetData, new int[] { tokenToIndex.Count });
-
-                dataset.Add((inputTensor, targetTensor));
-            }
-
-            return dataset;
         }
 
         private void SaveVocabulary(string vocabPath)

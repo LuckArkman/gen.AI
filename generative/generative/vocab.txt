@@ -36,7 +36,6 @@ ar
 área
 arte
 artificial
-assistente
 assistir
 até
 avança
@@ -141,7 +140,6 @@ gosta
 gostaria
 gosto
 grande
-grok
 hidratar
 história
 hobby
@@ -206,6 +204,7 @@ não
 natureza
 né
 neutro
+ninfa
 nisso
 no
 noite
@@ -323,7 +322,6 @@ vamos
 viagens
 vida
 vidas
-virtual
 visitou
 viu
 você

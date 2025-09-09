@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "/home/mplopes/Documentos/generative/AlphaOne/AlphaOne.csproj": {}
+    "/home/mplopes/Documentos/GitHub/gen.AI/generative/AlphaOne/AlphaOne.csproj": {}
   },
   "projects": {
-    "/home/mplopes/Documentos/generative/AlphaOne/AlphaOne.csproj": {
+    "/home/mplopes/Documentos/GitHub/gen.AI/generative/AlphaOne/AlphaOne.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "/home/mplopes/Documentos/generative/AlphaOne/AlphaOne.csproj",
+        "projectUniqueName": "/home/mplopes/Documentos/GitHub/gen.AI/generative/AlphaOne/AlphaOne.csproj",
         "projectName": "AlphaOne",
-        "projectPath": "/home/mplopes/Documentos/generative/AlphaOne/AlphaOne.csproj",
+        "projectPath": "/home/mplopes/Documentos/GitHub/gen.AI/generative/AlphaOne/AlphaOne.csproj",
         "packagesPath": "/home/mplopes/.nuget/packages/",
-        "outputPath": "/home/mplopes/Documentos/generative/AlphaOne/obj/",
+        "outputPath": "/home/mplopes/Documentos/GitHub/gen.AI/generative/AlphaOne/obj/",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "/home/mplopes/.nuget/NuGet/NuGet.Config"

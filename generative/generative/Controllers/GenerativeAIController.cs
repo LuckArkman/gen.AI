@@ -182,7 +182,7 @@ namespace GenerativeAIAPI.Controllers
                         { Error = "Dados de treinamento insuficientes para a ContextWindowSize especificada." });
                 }
 
-                double learningRate = request.LearningRate ?? 0.01;
+                double learningRate = request.LearningRate ?? 0.001;
                 int epochs = request.Epochs ?? 10;
                 double totalLoss = 0;
                 var losses = new List<double>();

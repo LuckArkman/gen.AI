@@ -97,7 +97,7 @@ public class Program
             string modelPathTemplate = Path.Combine(modelDir, "model.json"); 
             string vocabPath = Path.Combine(modelDir, "vocab.txt");
             int hiddenSize = configuration.GetValue<int>("ModelSettings:HiddenSize", 256);
-            double learningRate = configuration.GetValue<double>("ModelSettings:LearningRate", 0.0001);
+            double learningRate = configuration.GetValue<double>("ModelSettings:LearningRate", 0.001);
             
             if (!Directory.Exists(modelDir))
             {
