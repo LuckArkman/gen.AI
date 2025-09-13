@@ -93,38 +93,126 @@ public class BinaryTreeFileStorage
 
         Console.WriteLine($"Árvore vazia gerada com {TreeDepth} camadas de profundidade.");
     }
+    public List<long> AppendAllSamples(List<string> serializedSamples)
+    {
+        var offsets = new List<long>(serializedSamples.Count);
 
-    public void Insert(string data)
+        // Abre o arquivo UMA VEZ para anexar todos os dados.
+        using (var fs = new FileStream(_filePath, FileMode.Append, FileAccess.Write))
+        {
+            foreach (var sampleJson in serializedSamples)
+            {
+                byte[] sampleBytes = Encoding.UTF8.GetBytes(sampleJson);
+                if (sampleBytes.Length > TreeNode.MaxDataSize)
+                {
+                    Console.WriteLine($"Aviso: Amostra excedeu {TreeNode.MaxDataSize} bytes e foi ignorada durante a escrita em lote.");
+                    continue;
+                }
+
+                // Cria um nó para armazenar os dados, mantendo a estrutura de tamanho fixo do arquivo.
+                // Apenas o campo 'Data' é relevante aqui.
+                var node = new TreeNode
+                {
+                    Data = new byte[TreeNode.MaxDataSize],
+                    LeftOffset = -1,  // Não aplicável para armazenamento sequencial
+                    RightOffset = -1, // Não aplicável para armazenamento sequencial
+                    LastModified = DateTime.UtcNow.Ticks
+                };
+                Array.Copy(sampleBytes, node.Data, sampleBytes.Length);
+
+                // O offset da amostra é a posição ATUAL do stream antes da escrita.
+                long currentOffset = fs.Position;
+                offsets.Add(currentOffset);
+
+                // Escreve o nó serializado de tamanho fixo no arquivo.
+                byte[] nodeBytes = node.Serialize();
+                fs.Write(nodeBytes, 0, nodeBytes.Length);
+            }
+        }
+        return offsets;
+    }
+    
+    public List<long> StreamAndStoreSamples(IEnumerable<string> serializedSamplesStream, Action<int> onProgress)
+    {
+        var offsets = new List<long>();
+        int samplesSaved = 0;
+        const int progressUpdateFrequency = 5000; // Atualiza o console a cada 5000 amostras
+
+        using (var fs = new FileStream(_filePath, FileMode.Append, FileAccess.Write))
+        {
+            foreach (var sampleJson in serializedSamplesStream)
+            {
+                byte[] sampleBytes = Encoding.UTF8.GetBytes(sampleJson);
+            
+                if (sampleBytes.Length > TreeNode.MaxDataSize)
+                {
+                    continue;
+                }
+
+                var node = new TreeNode { Data = new byte[TreeNode.MaxDataSize] };
+                Array.Copy(sampleBytes, node.Data, sampleBytes.Length);
+
+                long currentOffset = fs.Position;
+                offsets.Add(currentOffset);
+
+                byte[] nodeBytes = node.Serialize();
+                fs.Write(nodeBytes, 0, nodeBytes.Length);
+
+                samplesSaved++;
+                if (samplesSaved % progressUpdateFrequency == 0)
+                {
+                    onProgress(samplesSaved); // Chama o callback de progresso
+                }
+            }
+        }
+    
+        onProgress(samplesSaved); // Garante a exibição do total final
+        Console.WriteLine(); // Adiciona uma nova linha após a conclusão da barra de progresso
+
+        return offsets;
+    }
+    
+    public long Insert(string data)
     {
         byte[] bytes = Encoding.UTF8.GetBytes(data);
         if (bytes.Length > TreeNode.MaxDataSize)
             throw new ArgumentException($"Data exceeds maximum size of {TreeNode.MaxDataSize} bytes.");
 
-        _rootOffset = InsertRecursive(_rootOffset, data);
+        long newOffset = -1; // Variável para capturar o offset do novo nó
+        _rootOffset = InsertRecursive(_rootOffset, data, ref newOffset);
         SaveRootOffset();
+        return newOffset; // Retorna o offset do nó que foi realmente inserido
     }
 
-    private long InsertRecursive(long offset, string data)
+    private long InsertRecursive(long offset, string data, ref long newOffset)
     {
         if (offset == -1)
         {
             // Novo nó no final do arquivo
             byte[] bytes = Encoding.UTF8.GetBytes(data);
-            return WriteNewNode(new TreeNode { Data = bytes });
+            long createdOffset = WriteNewNode(new TreeNode { Data = bytes });
+            newOffset = createdOffset; // Captura o offset do novo nó
+            return createdOffset;
         }
 
         var node = ReadNode(offset, true);
-        if (string.Compare(data, GetAsString(node.Data)) < 0)
-        {
-            node.LeftOffset = InsertRecursive(node.LeftOffset, data);
-        }
-        else if (string.Compare(data, GetAsString(node.Data)) > 0)
-        {
-            node.RightOffset = InsertRecursive(node.RightOffset, data);
-        }
-        // Se igual, não faz nada (sem duplicatas)
+        string nodeData = GetAsString(node.Data);
 
-        // Re-escreve o nó atualizado
+        int comparison = string.Compare(data, nodeData);
+        if (comparison < 0)
+        {
+            node.LeftOffset = InsertRecursive(node.LeftOffset, data, ref newOffset);
+        }
+        else if (comparison > 0)
+        {
+            node.RightOffset = InsertRecursive(node.RightOffset, data, ref newOffset);
+        }
+        // Se igual (comparison == 0), não faz nada (sem duplicatas), mas precisamos encontrar o offset
+        else
+        {
+            newOffset = offset; // O dado já existe, então o offset é o atual
+        }
+
         WriteNode(offset, node);
         return offset;
     }
@@ -267,4 +355,22 @@ public class BinaryTreeFileStorage
         }
     }
     public long GetRootOffset() => _rootOffset;
+
+    public void Clear()
+    {
+        // Apaga o arquivo e o recria, resetando a árvore
+        if (File.Exists(_filePath))
+        {
+            File.Delete(_filePath);
+        }
+        _rootOffset = -1;
+        using (var fs = new FileStream(_filePath, FileMode.Create, FileAccess.Write))
+        {
+            using (var bw = new BinaryWriter(fs))
+            {
+                bw.Write(_rootOffset);
+            }
+        }
+        Console.WriteLine("Memória virtual limpa para pré-processamento.");
+    }
 }

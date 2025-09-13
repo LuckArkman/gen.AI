@@ -708,11 +708,13 @@ namespace Core
 
         public double TrainEpoch(List<(Tensor input, Tensor target)> dataset, double learningRate, int epoch = 0)
         {
+            /*
             if (epoch > 0 && epoch % DECAY_EVERY_N_EPOCHS == 0)
             {
                 _currentLearningRate *= LEARNING_RATE_DECAY;
                 Console.WriteLine($"Learning rate decayed to: {_currentLearningRate:F6}");
             }
+            */
 
             double epochLoss = 0;
             int vocabSize = outputSize;

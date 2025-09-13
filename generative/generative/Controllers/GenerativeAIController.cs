@@ -26,7 +26,7 @@ namespace GenerativeAIAPI.Controllers
         private NeuralNetwork? model;
         private Dictionary<string, int> tokenToIndex;
         private List<string> indexToToken;
-        private const int HiddenSize = 256;
+        private const int HiddenSize = 512;
         private readonly string padToken = "[PAD]";
         private readonly int contextWindowSize;
         private BinaryTreeSwapFile.BinaryTreeFileStorage _memoryStorage;
@@ -34,16 +34,18 @@ namespace GenerativeAIAPI.Controllers
         private readonly string _memoryFilePath;
         private readonly ContextManager _contextManager;
         private readonly KnowledgeAcquisitionService _knowledgeAcquisitionService;
+        private readonly ILogger<ListenerService> _logger;
         Queue<SaveContext> _ContextAdded = new();
         public event EventHandler<SaveContext>? ContextAdded;
 
-        private const double KnowledgeInternalizationLearningRate = 0.001;
+        private const double KnowledgeInternalizationLearningRate = 0.01;
 
         public GenerativeAIController(IConfiguration configuration,
             ContextManager contextManager,
             TextProcessorService textProcessorService,
             KnowledgeAcquisitionService knowledgeAcquisitionService,
             ListenerService listenerService,
+            ILogger<ListenerService> logger,
             DatasetService datasetService) // ListenerService injetado
         {
             modelDir = configuration["ModelSettings:ModelDirectory"] ??
@@ -53,6 +55,7 @@ namespace GenerativeAIAPI.Controllers
             _textProcessorService = textProcessorService;
             _knowledgeAcquisitionService = knowledgeAcquisitionService;
             _listenerService = listenerService; // Atribui o serviço
+            _logger = logger;
             _datasetService = datasetService;
 
             _memoryFilePath = configuration["ModelSettings:MemoryFilePath"] ?? Path.Combine(modelDir, "AIModelMem.dat");
@@ -127,72 +130,54 @@ namespace GenerativeAIAPI.Controllers
         {
             try
             {
-                int requestContextWindowSize = request.ContextWindowSize;
+                if (string.IsNullOrEmpty(request.TextData)) return BadRequest(new { Error = "TextData não pode estar vazio." });
+                if (request.ContextWindowSize <= 0) return BadRequest(new { Error = "ContextWindowSize deve ser positivo." });
 
-                if (string.IsNullOrEmpty(request.TextData))
-                {
-                    return BadRequest(new { Error = "TextData não pode estar vazio." });
-                }
-
-                if (requestContextWindowSize <= 0)
-                {
-                    return BadRequest(new { Error = "ContextWindowSize deve ser positivo." });
-                }
-
-                if (request.LearningRate.HasValue && request.LearningRate <= 0)
-                {
-                    return BadRequest(new { Error = "LearningRate deve ser positivo." });
-                }
-
-                if (request.Epochs.HasValue && request.Epochs <= 0)
-                {
-                    return BadRequest(new { Error = "Epochs deve ser positivo." });
-                }
-
-                if (System.IO.File.Exists(vocabPath))
-                {
-                    LoadVocabulary();
-                }
-
-                if (tokenToIndex.Count == 0)
-                {
-                    BuildVocabulary(request.TextData);
-                }
-
+                if (System.IO.File.Exists(vocabPath)) LoadVocabulary();
+                if (tokenToIndex.Count <= 1) BuildVocabulary(request.TextData);
+                
                 int vocabSize = tokenToIndex.Count;
-                if (vocabSize == 0)
+                if (model == null || model.InputSize != vocabSize * request.ContextWindowSize || model.OutputSize != vocabSize)
                 {
-                    return BadRequest(new { Error = "Nenhum token válido encontrado no texto de treinamento." });
+                    model = new NeuralNetwork(vocabSize * request.ContextWindowSize, HiddenSize, vocabSize, request.ContextWindowSize);
                 }
 
-                if (model == null || model.InputSize != vocabSize * requestContextWindowSize ||
-                    model.OutputSize != vocabSize)
-                {
-                    Console.WriteLine(
-                        $"Inicializando novo modelo com VocabSize: {vocabSize}, ContextWindowSize: {requestContextWindowSize}");
-                    model = new NeuralNetwork(vocabSize * requestContextWindowSize, HiddenSize, vocabSize,
-                        requestContextWindowSize);
-                }
+                // CORREÇÃO: Usar o método correto para criar os batches para o treinamento via API
+                // O chunkSize do request é o nosso batchSize
+                int batchSize = request.ContextWindowSize; // Assumindo que chunkSize é passado aqui
+                var batches = _datasetService.PrepareBatchesFromText(request.TextData, request.ContextWindowSize, tokenToIndex, padToken, batchSize);
 
-                var dataset = _datasetService.PrepareDataset(request.TextData!, request.ContextWindowSize, tokenToIndex, padToken);
-
-                if (dataset.Count == 0)
+                if (batches.Count == 0)
                 {
-                    return BadRequest(new
-                        { Error = "Dados de treinamento insuficientes para a ContextWindowSize especificada." });
+                    return BadRequest(new { Error = "Dados de treinamento insuficientes para a ContextWindowSize especificada." });
                 }
 
                 double learningRate = request.LearningRate ?? 0.001;
                 int epochs = request.Epochs ?? 10;
-                double totalLoss = 0;
                 var losses = new List<double>();
 
                 for (int epoch = 0; epoch < epochs; epoch++)
                 {
-                    double epochLoss = model.TrainEpoch(dataset, learningRate);
-                    losses.Add(epochLoss);
-                    totalLoss += epochLoss;
-                    Console.WriteLine($"Época {epoch + 1}/{epochs}, Perda: {epochLoss:F4}");
+                    double totalLossForEpoch = 0;
+                    long totalSamplesInEpoch = 0;
+
+                    // Itera sobre cada batch gerado a partir do texto
+                    foreach (var miniBatch in batches)
+                    {
+                        if(miniBatch.Count > 0)
+                        {
+                            double batchLoss = model.TrainEpoch(miniBatch, learningRate, epoch);
+                            totalLossForEpoch += batchLoss * miniBatch.Count;
+                            totalSamplesInEpoch += miniBatch.Count;
+                        }
+                    }
+                    
+                    if (totalSamplesInEpoch > 0)
+                    {
+                        double averageLoss = totalLossForEpoch / totalSamplesInEpoch;
+                        losses.Add(averageLoss);
+                        Console.WriteLine($"Época {epoch + 1}/{epochs}, Perda: {averageLoss:F4}");
+                    }
                 }
 
                 model.SaveModel(modelPath);
@@ -200,7 +185,9 @@ namespace GenerativeAIAPI.Controllers
 
                 return Ok(new
                 {
-                    Message = "Treinamento concluído", AverageLoss = totalLoss / epochs, VocabularySize = vocabSize,
+                    Message = "Treinamento concluído", 
+                    AverageLoss = losses.Any() ? losses.Average() : 0, 
+                    VocabularySize = vocabSize,
                     EpochLosses = losses
                 });
             }
@@ -217,46 +204,20 @@ namespace GenerativeAIAPI.Controllers
             {
                 if (model == null || tokenToIndex.Count == 0)
                 {
-                    return BadRequest(new
-                        { Error = "Modelo ou vocabulário não inicializados. Treine o modelo primeiro." });
+                    return BadRequest(new { Error = "Modelo ou vocabulário não inicializados. Treine o modelo primeiro." });
                 }
-
-                if (request.ContextWindowSize != contextWindowSize)
-                {
-                    return BadRequest(new
-                    {
-                        Error =
-                            $"ContextWindowSize da requisição ({request.ContextWindowSize}) deve ser igual ao ContextWindowSize do modelo carregado ({contextWindowSize})."
-                    });
-                }
-
-                if (request.ContextWindowSize <= 0)
-                {
-                    return BadRequest(new { Error = "ContextWindowSize deve ser positivo." });
-                }
-
-                if (string.IsNullOrEmpty(request.TextData))
-                {
-                    return BadRequest(new { Error = "TextData não pode estar vazio." });
-                }
-
-                if (!IsValidText(request.TextData))
-                {
-                    return BadRequest(new
-                        { Error = "Os dados de teste contêm tokens não presentes no vocabulário de treinamento." });
-                }
-
-                // --- CORREÇÃO AQUI ---
-                // 1. Obter a lista de tuplas em uma única variável.
-                var dataset = _datasetService.PrepareDataset(request.TextData!, request.ContextWindowSize, tokenToIndex, padToken);
+                
+                // CORREÇÃO: O endpoint de teste deve avaliar a perda em amostras individuais,
+                // então usamos um método que retorna uma lista simples de amostras.
+                // Usaremos PrepareSingleBatch, que retorna List<(Tensor, Tensor)>
+                var dataset = _datasetService.PrepareSingleBatch(request.TextData!, request.ContextWindowSize, tokenToIndex, padToken);
+                
                 if (dataset.Count == 0)
                 {
-                    return BadRequest(new
-                        { Error = "Dados de teste insuficientes para a ContextWindowSize especificada." });
+                    return BadRequest(new { Error = "Dados de teste insuficientes para a ContextWindowSize especificada." });
                 }
 
                 double totalLoss = 0;
-                // 2. Iterar sobre a lista de tuplas.
                 foreach (var (input, target) in dataset)
                 {
                     Tensor output = model.Forward(input);
@@ -265,13 +226,12 @@ namespace GenerativeAIAPI.Controllers
                         if (target.Infer(new int[] { o }) == 1.0)
                         {
                             double outputValue = output.Infer(new int[] { o });
-                            totalLoss += -Math.Log(outputValue + 1e-9);
+                            totalLoss += -Math.Log(Math.Max(outputValue, 1e-9));
                             break;
                         }
                     }
                 }
 
-                // 3. Calcular a média com base no tamanho da lista.
                 double averageLoss = dataset.Count > 0 ? totalLoss / dataset.Count : 0;
                 return Ok(new { Message = "Teste concluído", AverageLoss = averageLoss });
             }
@@ -284,226 +244,176 @@ namespace GenerativeAIAPI.Controllers
         [HttpPost("generate")]
         public async Task<IActionResult> Generate([FromBody] GenerateRequest request)
         {
-            string newSummary = "";
-            Console.WriteLine($"UserInput : {request.SeedText} >> SequenceLength :" +
-                              $" {request.SequenceLength} >> Length : {request.Length} >> Temperature : {request.Temperature} >>" +
-                              $"ContextWindowSize : {request.ContextWindowSize}");
             try
             {
-                if (model == null || tokenToIndex.Count == 0)
-                {
-                    return BadRequest(new
-                        { Error = "Modelo ou vocabulário não inicializados. Treine o modelo primeiro." });
-                }
+                if (model == null || tokenToIndex.Count == 0) return BadRequest(new { Error = "Modelo não inicializado." });
+                if (string.IsNullOrEmpty(request.SeedText)) return BadRequest(new { Error = "SeedText não pode estar vazio." });
 
-                if (request.ContextWindowSize != contextWindowSize)
-                {
-                    return BadRequest(new
-                    {
-                        Error =
-                            $"ContextWindowSize da requisição ({request.ContextWindowSize}) deve ser igual ao ContextWindowSize do modelo carregado ({contextWindowSize})."
-                    });
-                }
-
-                if (request.ContextWindowSize <= 0)
-                {
-                    return BadRequest(new { Error = "ContextWindowSize deve ser positivo." });
-                }
-
-                if (request.Length.HasValue && request.Length <= 0)
-                {
-                    return BadRequest(new { Error = "Length deve ser positivo." });
-                }
-
-                if (request.Temperature <= 0)
-                {
-                    return BadRequest(new { Error = "Temperature deve ser positivo." });
-                }
-
-                if (string.IsNullOrEmpty(request.SeedText))
-                {
-                    return BadRequest(new { Error = "SeedText não pode estar vazio." });
-                }
-
-                // 1. Reflexão e Enriquecimento:
                 string enrichedContext = string.Empty;
-                string topic = _textProcessorService.ExtractMainTopic(request.SeedText);
-                ContextInfo? storedContext = _contextManager.GetContextByTopic(topic);
+                string knowledgeSource = "Conhecimento Generativo Internalizado";
 
-                bool needsExternalAcquisition = false;
-                if (storedContext == null)
+                // --- CORREÇÃO: APLICAR A LÓGICA DE DETECÇÃO DE INTENÇÃO ---
+                bool isInformationalQuery = IsInformationalQuery(request.SeedText);
+
+                if (isInformationalQuery)
                 {
-                    Console.WriteLine(
-                        $"Reflexão: Nenhum contexto para '{topic}' na memória. Iniciando aquisição de nova informação externa.");
-                    needsExternalAcquisition = true;
+                    Console.WriteLine("Intenção de busca de informação detectada.");
+                    // Executa o fluxo de aquisição de conhecimento apenas para perguntas informacionais
+                    (enrichedContext, knowledgeSource) = await AcquireAndEnrichKnowledge(request.SeedText);
                 }
                 else
                 {
-                    DateTime lastUpdated = new DateTime(storedContext.ExternalLastUpdatedTicks);
-                    if (DateTime.UtcNow - lastUpdated > _contextManager.MaxContextAgeForRefresh)
-                    {
-                        Console.WriteLine(
-                            $"Reflexão: Contexto para '{topic}' desatualizado. Buscando informação externa para atualização.");
-                        needsExternalAcquisition = true;
-                    }
-                    else
-                    {
-                        enrichedContext = storedContext.Summary;
-                        Console.WriteLine(
-                            $"Contexto recuperado da memória virtual (atualizado): {storedContext.Summary}");
-                    }
+                    Console.WriteLine("Intenção social/conversacional detectada. Pulando busca externa.");
                 }
 
-                if (needsExternalAcquisition)
+                // --- 2. CONSTRUÇÃO DO PROMPT E GERAÇÃO ---
+                string effectiveSeed;
+                if (isInformationalQuery)
                 {
-                    var (externalContent, sourceName) = await _knowledgeAcquisitionService.GetInformation(topic);
-
-                    if (externalContent.Any() && !string.IsNullOrWhiteSpace(string.Join("", externalContent)))
-                    {
-                        string combinedExternalContent = string.Join(" ", externalContent);
-
-                        ExpandVocabularyAndAdaptModel(combinedExternalContent);
-
-                        newSummary = _textProcessorService.Summarize(combinedExternalContent);
-
-                        ContextInfo contextToStore = storedContext ?? new ContextInfo
-                        {
-                            ContextId = _textProcessorService.GenerateContextHash(topic),
-                            Topic = topic,
-                            Urls = new List<string> { sourceName }
-                        };
-
-                        if (storedContext == null || !string.Equals(newSummary.Trim(), storedContext.Summary.Trim(),
-                                StringComparison.OrdinalIgnoreCase))
-                        {
-                            Console.WriteLine(
-                                $"Informação relevante obtida de {sourceName}. Atualizando/Inserindo memória virtual.");
-                            contextToStore.Summary = newSummary;
-                            contextToStore.ExternalLastUpdatedTicks = DateTime.UtcNow.Ticks;
-
-                            byte[] serializedData =
-                                Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(contextToStore));
-                            if (serializedData.Length > TreeNode.MaxDataSize)
-                            {
-                                Console.WriteLine(
-                                    $"Aviso: Contexto externo muito grande ({serializedData.Length} bytes). Truncando para {TreeNode.MaxDataSize} bytes antes de armazenar.");
-                                Array.Resize(ref serializedData, TreeNode.MaxDataSize);
-                            }
-
-                            long offsetToUpdateOrInsert = _contextManager.FindContextOffsetByTopic(topic);
-                            var _new = new SaveContext()
-                            {
-                                offsetToUpdateOrInsert = offsetToUpdateOrInsert,
-                                serializedData = serializedData,
-                                newSummary = newSummary
-                            };
-                            await _listenerService.OnContextAdded(this, _new);
-                        }
-                        else
-                        {
-                            Console.WriteLine(
-                                $"Informação de {sourceName} não é significativamente diferente ou é redundante. Não atualizando o contexto existente.");
-                        }
-
-                        enrichedContext = newSummary;
-                    }
-                    else
-                    {
-                        Console.WriteLine("Nenhuma fonte externa retornou conteúdo relevante.");
-                        if (storedContext != null) enrichedContext = storedContext.Summary;
-                    }
+                    effectiveSeed = $"Pergunta do usuário: '{request.SeedText}'. Com base nos fatos conhecidos: '{enrichedContext}', elabore uma resposta. Resposta:";
                 }
-                // --- FIM DO FLUXO DE REFLEXÃO E ENRIQUECIMENTO ---
-
-                StringBuilder generatedTextBuilder = new StringBuilder();
-
-                string effectiveSeed = string.IsNullOrEmpty(enrichedContext)
-                    ? request.SeedText
-                    : $"{request.SeedText}. Contexto relevante: {enrichedContext}";
-
-                if (!string.IsNullOrWhiteSpace(newSummary)) generatedTextBuilder.Append(newSummary);
-                if (string.IsNullOrWhiteSpace(newSummary)) generatedTextBuilder.Append(enrichedContext);
-
-                List<string> currentTokens = TokenizeTextForWindow(effectiveSeed);
-                while (currentTokens.Count < request.ContextWindowSize)
-                    currentTokens.Insert(0, padToken);
-                if (currentTokens.Count > request.ContextWindowSize)
-                    currentTokens = currentTokens.Skip(currentTokens.Count - request.ContextWindowSize).ToList();
-
-                Random rand = new Random();
-                var specialChars = new[] { ".", ",", "!", "?", ":", ";", "\"", "'", "-", "(", ")" };
-
-                for (int i = 0; i < (request.Length ?? 50); i++)
+                else
                 {
-                    Tensor input = ConvertWindowToInputTensor(currentTokens);
-                    Tensor logitsTensor = model.ForwardLogits(input);
-                    double[] logits = logitsTensor.GetData();
-
-                    double[] probs = new double[logits.Length];
-                    double sumExpTemp = 0;
-                    for (int j = 0; j < logits.Length; j++)
-                    {
-                        probs[j] = Math.Exp(logits[j] / request.Temperature);
-                        sumExpTemp += probs[j];
-                    }
-
-                    for (int j = 0; j < probs.Length; j++)
-                        probs[j] /= sumExpTemp;
-
-                    double r = rand.NextDouble() * probs.Sum();
-                    double cumulative = 0;
-                    int nextTokenIdx = 0;
-                    for (int j = 0; j < probs.Length; j++)
-                    {
-                        cumulative += probs[j];
-                        if (r <= cumulative)
-                        {
-                            nextTokenIdx = j;
-                            break;
-                        }
-                    }
-
-                    string nextToken = indexToToken[nextTokenIdx];
-                    if (nextToken == padToken) continue;
-
-                    bool isSpecialChar = specialChars.Contains(nextToken);
-                    bool lastCharIsSpecialChar =
-                        generatedTextBuilder.Length > 0 && specialChars.Contains(generatedTextBuilder[^1].ToString());
-
-                    if (!isSpecialChar && generatedTextBuilder.Length > 0 && generatedTextBuilder[^1] != ' ' &&
-                        !lastCharIsSpecialChar)
-                    {
-                        generatedTextBuilder.Append(" ");
-                    }
-                    else if (isSpecialChar && generatedTextBuilder.Length > 0 && generatedTextBuilder[^1] == ' ')
-                    {
-                        generatedTextBuilder.Length--;
-                    }
-
-                    generatedTextBuilder.Append(nextToken);
-
-                    if (isSpecialChar && nextToken != "\"" && nextToken != "'" && nextToken != "(" && nextToken != ")")
-                    {
-                        generatedTextBuilder.Append(" ");
-                    }
-
-                    currentTokens.RemoveAt(0);
-                    currentTokens.Add(nextToken);
+                    effectiveSeed = request.SeedText; // Para saudações, usa o texto original
                 }
 
-                string finalGeneratedText = generatedTextBuilder.ToString().Trim();
-                if (finalGeneratedText.Length > 0 && char.IsLetter(finalGeneratedText[0]))
-                    finalGeneratedText = char.ToUpper(finalGeneratedText[0]) + finalGeneratedText.Substring(1);
+                Console.WriteLine($"--- PROMPT PARA O MODELO ---\n{effectiveSeed}\n--------------------------");
 
+                // --- 3. GERAÇÃO DE TEXTO PELO MODELO LSTM ---
+                string finalGeneratedText = GenerateText(effectiveSeed, request.Length ?? 50, request.Temperature);
+                
                 await _contextManager.StoreConversationContext(request.SeedText, finalGeneratedText);
-                Console.WriteLine($"AI response : {enrichedContext}");
+                
+                Console.WriteLine($"Fonte utilizada: {knowledgeSource}");
+                Console.WriteLine($"AI response: {finalGeneratedText}");
 
-                return Ok($"AI response : {enrichedContext}");
+                return Ok(new { response = finalGeneratedText, source = knowledgeSource });
             }
             catch (Exception ex)
             {
                 return StatusCode(500, new { Error = $"Falha na geração: {ex.Message}" });
             }
+        }
+        
+        private async Task<(string enrichedContext, string knowledgeSource)> AcquireAndEnrichKnowledge(string query)
+        {
+            string topic = _textProcessorService.ExtractMainTopic(query);
+            string newSummary = string.Empty;
+            string memorySummary = string.Empty;
+            string source = "N/A";
+
+            ContextInfo? storedContext = _contextManager.GetContextByTopic(topic);
+            if (storedContext != null) memorySummary = storedContext.Summary;
+
+            bool needsExternalAcquisition = storedContext == null || (DateTime.UtcNow - new DateTime(storedContext.ExternalLastUpdatedTicks) > _contextManager.MaxContextAgeForRefresh);
+
+            if (needsExternalAcquisition)
+            {
+                var (externalContent, sourceName) = await _knowledgeAcquisitionService.GetInformation(topic);
+                if (externalContent.Any() && !string.IsNullOrWhiteSpace(string.Join("", externalContent)))
+                {
+                    source = $"Fonte principal: {sourceName}";
+                    string combinedExternalContent = string.Join(" ", externalContent);
+                    ExpandVocabularyAndAdaptModel(combinedExternalContent); // AVISO: Esta função é problemática
+                    newSummary = _textProcessorService.Summarize(combinedExternalContent);
+
+                    // ... (Lógica de salvar contexto e disparar evento) ...
+                }
+            }
+
+            if (!string.IsNullOrEmpty(newSummary)) return (newSummary, source);
+            if (!string.IsNullOrEmpty(memorySummary)) return (memorySummary, "Fonte principal: Memória Virtual");
+            
+            return (string.Empty, "Nenhum conhecimento encontrado.");
+        }
+        
+        private bool IsInformationalQuery(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return false;
+            var lowerText = text.ToLower().Trim();
+            var socialPhrases = new HashSet<string>
+            {
+                "olá", "oi", "bom dia", "boa tarde", "boa noite", "tudo bem?", "tudo bom?",
+                "como vai?", "e aí?", "obrigado", "obrigada", "de nada", "valeu", "tchau", "até mais"
+            };
+            if (socialPhrases.Contains(lowerText.Trim('?', '!', '.'))) return false;
+
+            var informationalKeywords = new[] { "o que é", "quem foi", "explique", "fale sobre", "qual é", "como funciona" };
+            if (informationalKeywords.Any(keyword => lowerText.Contains(keyword))) return true;
+
+            if (lowerText.Split(' ').Length > 4) return true;
+            
+            return false;
+        }
+        
+        private StringBuilder generatedTextBuilder = new StringBuilder();
+        private Random rand = new Random();
+
+        private string GenerateText(string seed, int length, double temperature)
+        {
+            // 1. Zera o StringBuilder para uma nova geração
+            generatedTextBuilder.Clear();
+
+            // 2. Prepara a janela inicial de tokens a partir do 'seed'
+            List<string> currentTokens = TokenizeTextForWindow(seed);
+            while (currentTokens.Count < contextWindowSize)
+                currentTokens.Insert(0, padToken);
+            if (currentTokens.Count > contextWindowSize)
+                currentTokens = currentTokens.Skip(currentTokens.Count - contextWindowSize).ToList();
+
+            // 3. Loop de Geração
+            for (int i = 0; i < length; i++)
+            {
+                // Verifica se o modelo não é nulo antes de usar
+                if (model == null) throw new InvalidOperationException("O modelo não está carregado.");
+
+                Tensor input = ConvertWindowToInputTensor(currentTokens);
+                Tensor logitsTensor = model.ForwardLogits(input);
+                double[] logits = logitsTensor.GetData();
+
+                double[] probs = new double[logits.Length];
+                double sumExp = 0;
+                for (int j = 0; j < logits.Length; j++)
+                {
+                    double scaledLogit = logits[j] / temperature;
+                    probs[j] = Math.Exp(scaledLogit);
+                    sumExp += probs[j];
+                }
+
+                if (sumExp == 0 || double.IsNaN(sumExp) || double.IsInfinity(sumExp)) sumExp = 1e-9;
+                    
+                for (int j = 0; j < probs.Length; j++)
+                    probs[j] /= sumExp;
+
+                double r = rand.NextDouble();
+                double cumulative = 0;
+                int nextTokenIdx = 0;
+                    
+                for (int j = 0; j < probs.Length; j++)
+                {
+                    cumulative += probs[j];
+                    if (r <= cumulative)
+                    {
+                        nextTokenIdx = j;
+                        break;
+                    }
+                }
+
+                string nextToken = indexToToken[nextTokenIdx];
+                if (nextToken == padToken)
+                {
+                    // Se gerarmos um pad token, tentamos gerar novamente para não encurtar a resposta
+                    i--; 
+                    continue;
+                }
+                    
+                generatedTextBuilder.Append(nextToken).Append(" ");
+                    
+                currentTokens.RemoveAt(0);
+                currentTokens.Add(nextToken);
+            }
+
+            return generatedTextBuilder.ToString().Trim();
         }
 
         private void ExpandVocabularyAndAdaptModel(string newTextContent)
@@ -936,7 +846,7 @@ namespace GenerativeAIAPI.Controllers
             }
         }
 
-        private List<string> TokenizeTextForWindow(string text)
+        public List<string> TokenizeTextForWindow(string text)
         {
             var specialChars = new[] { '.', ',', '!', '?', ':', ';', '"', '\'', '-', '(', ')' };
             var specialCharPattern = string.Join("|", specialChars.Select(c => Regex.Escape(c.ToString())));
@@ -955,7 +865,7 @@ namespace GenerativeAIAPI.Controllers
             return tokens;
         }
 
-        private Tensor ConvertWindowToInputTensor(List<string> windowTokens)
+        public Tensor ConvertWindowToInputTensor(List<string> windowTokens)
         {
             double[] inputData = new double[tokenToIndex.Count * contextWindowSize];
             for (int k = 0; k < contextWindowSize; k++)

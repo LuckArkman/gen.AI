@@ -1,11 +1,10 @@
 using System;
 using System.Buffers;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 using BinaryTreeSwapFile;
 using Core;
 using Models;
@@ -16,77 +15,70 @@ namespace Services
     {
         private static readonly ArrayPool<double> _arrayPool = ArrayPool<double>.Shared;
 
-        // Processa o texto, armazena cada AMOSTRA individualmente, e retorna os offsets
-        public List<long> PreprocessAndStoreSamples(
-            string text,
-            int contextWindowSize,
-            Dictionary<string, int> tokenToIndex,
-            string padToken,
-            BinaryTreeFileStorage memoryStorage)
+        // Gera todos os batches, os armazena na memória virtual e retorna seus offsets
+        public List<long> PreprocessAndStoreBatches(
+            string text, 
+            int contextWindowSize, 
+            Dictionary<string, int> tokenToIndex, 
+            string padToken, 
+            BinaryTreeFileStorage memoryStorage,
+            int batchSize)
         {
-            Console.WriteLine("Iniciando streaming e armazenamento de amostras para o bloco atual...");
-            
-            // 1. Cria o gerador de fluxo (nenhuma amostra é realmente criada aqui ainda)
-            var samplesStream = StreamAllSamplesAsJson(text, contextWindowSize, tokenToIndex, padToken);
+            Console.WriteLine("Iniciando pré-processamento de todo o dataset...");
 
-            // 2. Define a função de callback para o progresso
-            Action<int> progressCallback = count =>
+            var allSamples = GenerateAllSamples(text, contextWindowSize, tokenToIndex, padToken);
+
+            Console.WriteLine($"Total de {allSamples.Count} amostras geradas. Agrupando em batches de {batchSize}...");
+            var batchOffsets = new List<long>();
+
+            for (int i = 0; i < allSamples.Count; i += batchSize)
             {
-                Console.Write($"\rArmazenando amostras... {count} salvas.");
-            };
+                var currentBatch = allSamples.Skip(i).Take(batchSize).ToList();
+                if (currentBatch.Count == 0) continue;
 
-            // 3. Passa o fluxo e o callback para o método de armazenamento otimizado
-            // O armazenamento irá puxar as amostras do fluxo uma a uma, mantendo a memória baixa.
-            var sampleOffsets = memoryStorage.StreamAndStoreSamples(samplesStream, progressCallback);
-
-            Console.WriteLine($"Bloco processado. Total de {sampleOffsets.Count} amostras armazenadas.");
-            return sampleOffsets;
-        }
-        
-        private IEnumerable<string> StreamAllSamplesAsJson(string text, int contextWindowSize, Dictionary<string, int> tokenToIndex, string padToken)
-        {
-            var paddedTokens = TokenizeAndPad(text, contextWindowSize, padToken);
-            int totalWindows = paddedTokens.Count - contextWindowSize;
-
-            for (int i = 0; i < totalWindows; i++)
-            {
-                var sample = CreateSample(paddedTokens, i, contextWindowSize, tokenToIndex, padToken);
-                if (sample.HasValue)
+                var batchData = new TensorBatchData();
+                foreach (var (input, target) in currentBatch)
                 {
-                    var (input, target) = sample.Value;
-                    var sampleData = new TensorPairData
+                    batchData.Batch.Add(new TensorPairData
                     {
                         Input = new TensorData { data = input.GetData(), shape = input.GetShape() },
                         Target = new TensorData { data = target.GetData(), shape = target.GetShape() }
-                    };
-                    string serializedSample = JsonSerializer.Serialize(sampleData);
+                    });
+                }
 
-                    if (System.Text.Encoding.UTF8.GetByteCount(serializedSample) <= TreeNode.MaxDataSize)
-                    {
-                        // 'yield return' produz um item para o consumidor e pausa a execução
-                        // até que o próximo item seja solicitado. Isso evita criar uma lista.
-                        yield return serializedSample;
-                    }
+                string serializedBatch = JsonSerializer.Serialize(batchData);
+                long offset = memoryStorage.Insert(serializedBatch);
+                batchOffsets.Add(offset);
+            }
+
+            Console.WriteLine($"Pré-processamento concluído. {batchOffsets.Count} batches armazenados na memória virtual.");
+            return batchOffsets;
+        }
+
+        // Recupera um batch específico da memória virtual usando seu offset
+        public List<(Tensor input, Tensor target)> GetBatchFromStorage(long offset, BinaryTreeFileStorage memoryStorage)
+        {
+            string serializedBatch = memoryStorage.GetData(offset);
+            if (string.IsNullOrEmpty(serializedBatch))
+            {
+                return new List<(Tensor, Tensor)>();
+            }
+
+            var batchData = JsonSerializer.Deserialize<TensorBatchData>(serializedBatch);
+            
+            var dataset = new List<(Tensor, Tensor)>();
+            if (batchData != null)
+            {
+                foreach (var pairData in batchData.Batch)
+                {
+                    dataset.Add((new Tensor(pairData.Input.data, pairData.Input.shape),
+                                 new Tensor(pairData.Target.data, pairData.Target.shape)));
                 }
             }
-        }
-
-        // Recupera uma ÚNICA amostra da memória virtual
-        public (Tensor input, Tensor target) GetSampleFromStorage(long offset, BinaryTreeFileStorage memoryStorage)
-        {
-            string serializedSample = memoryStorage.GetData(offset);
-            var sampleData = JsonSerializer.Deserialize<TensorPairData>(serializedSample);
-
-            if (sampleData == null)
-            {
-                throw new InvalidDataException($"Não foi possível desserializar a amostra no offset {offset}.");
-            }
-
-            return (new Tensor(sampleData.Input.data, sampleData.Input.shape),
-                    new Tensor(sampleData.Target.data, sampleData.Target.shape));
+            return dataset;
         }
         
-        // Método auxiliar PRIVADO que faz o trabalho pesado de forma paralela.
+        // Método auxiliar que gera todas as amostras em memória.
         private List<(Tensor input, Tensor target)> GenerateAllSamples(string text, int contextWindowSize, Dictionary<string, int> tokenToIndex, string padToken)
         {
             var paddedTokens = TokenizeAndPad(text, contextWindowSize, padToken);
@@ -166,32 +158,6 @@ namespace Services
             {
                 _arrayPool.Return(inputData);
             }
-        }
-        
-        public List<(Tensor input, Tensor target)> PrepareSingleBatch(string text, int contextWindowSize, Dictionary<string, int> tokenToIndex, string padToken)
-        {
-            return GenerateAllSamples(text, contextWindowSize, tokenToIndex, padToken);
-        }
-        
-        public List<List<(Tensor input, Tensor target)>> PrepareBatchesFromText(
-            string text, 
-            int contextWindowSize, 
-            Dictionary<string, int> tokenToIndex, 
-            string padToken, 
-            int batchSize)
-        {
-            var allSamples = GenerateAllSamples(text, contextWindowSize, tokenToIndex, padToken);
-            var batches = new List<List<(Tensor input, Tensor target)>>();
-
-            for (int i = 0; i < allSamples.Count; i += batchSize)
-            {
-                var batch = allSamples.Skip(i).Take(batchSize).ToList();
-                if (batch.Count > 0)
-                {
-                    batches.Add(batch);
-                }
-            }
-            return batches;
         }
     }
 }

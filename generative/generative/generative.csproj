@@ -14,6 +14,7 @@
         <PackageReference Include="OpenCL.Net" Version="2.2.9" />
         <PackageReference Include="OpenTK" Version="4.9.4" />
         <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+        <PackageReference Include="System.Linq.Async" Version="6.0.3" />
     </ItemGroup>
 
     <ItemGroup>

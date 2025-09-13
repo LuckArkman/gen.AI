@@ -2,7 +2,7 @@ namespace BinaryTreeSwapFile;
 
 public class TreeNode
 {
-    public const int MaxDataSize = 4096; // Maximum data size (bytes)
+    public const int MaxDataSize = 5_242_880; // 5 MB
     public const int NodeSize = MaxDataSize + 8 + 8 + 8; // Data + LeftOffset + RightOffset + LastModified
 
     public byte[] Data { get; set; } = Array.Empty<byte>(); // Data (byte array, limited to MaxDataSize bytes)

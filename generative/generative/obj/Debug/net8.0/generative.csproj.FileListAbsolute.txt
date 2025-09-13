@@ -128,3 +128,4 @@
 /home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/runtimes/osx-x64/native/libglfw.3.dylib
 /home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/runtimes/win-x64/native/glfw3.dll
 /home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/runtimes/win-x86/native/glfw3.dll
+/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/bin/Debug/net8.0/System.Linq.Async.dll

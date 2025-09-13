@@ -13,7 +13,8 @@
           "Newtonsoft.Json": "13.0.4-beta1",
           "OpenCL.Net": "2.2.9",
           "OpenTK": "4.9.4",
-          "Swashbuckle.AspNetCore": "6.6.2"
+          "Swashbuckle.AspNetCore": "6.6.2",
+          "System.Linq.Async": "6.0.3"
         },
         "runtime": {
           "generative.dll": {}
@@ -240,6 +241,14 @@
           }
         }
       },
+      "System.Linq.Async/6.0.3": {
+        "runtime": {
+          "lib/net6.0/System.Linq.Async.dll": {
+            "assemblyVersion": "6.0.0.0",
+            "fileVersion": "6.0.3.6811"
+          }
+        }
+      },
       "System.Runtime.CompilerServices.Unsafe/6.0.0": {}
     }
   },
@@ -395,6 +404,13 @@
       "sha512": "sha512-mBBb+/8Hm2Q3Wygag+hu2jj69tZW5psuv0vMRXY07Wy+Rrj40vRP8ZTbKBhs91r45/HXT4aY4z0iSBYx1h6JvA==",
       "path": "swashbuckle.aspnetcore.swaggerui/6.6.2",
       "hashPath": "swashbuckle.aspnetcore.swaggerui.6.6.2.nupkg.sha512"
+    },
+    "System.Linq.Async/6.0.3": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-hSHiq2m1ky7zUQgTp+/2h1K3lABIQ+GltRixoclHPg/Sc1vnfeS6g/Uy5moOVZKrZJdQiFPFZd6OobBp3tZcFg==",
+      "path": "system.linq.async/6.0.3",
+      "hashPath": "system.linq.async.6.0.3.nupkg.sha512"
     },
     "System.Runtime.CompilerServices.Unsafe/6.0.0": {
       "type": "package",

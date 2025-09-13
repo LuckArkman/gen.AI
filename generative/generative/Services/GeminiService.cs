@@ -11,7 +11,7 @@ namespace Services
         private readonly HttpClient _httpClient;
         private readonly string _geminiApiKey;
         private static readonly string _baseEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/";
-        private readonly string _geminiModel = "gemini-2.5-flash"; // Modelo moderno e eficiente
+        private readonly string _geminiModel = "gemini-1.5-flash-latest"; // Modelo moderno e eficiente
 
         public GeminiService(IConfiguration configuration, HttpClient httpClient)
         {

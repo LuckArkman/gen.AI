@@ -92,7 +92,7 @@ public class Program
         {
             Console.WriteLine($"Iniciando modo de treinamento (época inicial: {startEpoch}, total de épocas: {totalEpochs}, janela de contexto: {contextWindowSize}, tamanho do chunk: {chunkSize})...");
 
-            string datasetPath = configuration["TrainingSettings:DatasetPath"] ?? "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/output/code";
+            string datasetPath = configuration["TrainingSettings:DatasetPath"] ?? "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/output/code.txt";
             string modelDir = configuration["ModelSettings:ModelDirectory"] ?? "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/";
             string modelPathTemplate = Path.Combine(modelDir, "model.json"); 
             string vocabPath = Path.Combine(modelDir, "vocab.txt");
@@ -110,7 +110,7 @@ public class Program
                 vocabPath: vocabPath,
                 hiddenSize: hiddenSize,
                 sequenceLength: contextWindowSize,
-                learningRate: learningRate,
+                initialLearningRate: learningRate,
                 epochs: totalEpochs,
                 textProcessorService: textProcessorService,
                 memoryStorage: memoryStorage,

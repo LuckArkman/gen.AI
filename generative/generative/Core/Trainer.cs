@@ -1,11 +1,12 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Text;
-using System.Text.Json; // Usar System.Text.Json para ContextInfo
 using System.Text.RegularExpressions;
 using BinaryTreeSwapFile;
-using Models; // Assumindo ContextInfo, SummaryRequest, etc. estão aqui
-using Services; // Namespace correto para TextProcessorService e ContextInfo
-
-// Manter para consistência se no futuro usar IConfiguration aqui.
+using Models;
+using Services;
 
 namespace Core
 {
@@ -15,25 +16,32 @@ namespace Core
         private readonly string modelPathTemplate;
         private readonly string _vocabPath;
         private NeuralNetwork? model;
-        private Dictionary<string, int> tokenToIndex;
-        private List<string> indexToToken;
+        private Dictionary<string, int> tokenToIndex = new Dictionary<string, int>();
+        private List<string> indexToToken = new List<string>();
         private readonly int hiddenSize;
-        private readonly int contextWindowSize; 
-        private readonly double learningRate;
+        private readonly int contextWindowSize;
+        private double learningRate; // MUDANÇA: Agora é um campo para poder ser modificado
         private readonly int epochs;
         private readonly string padToken = "[PAD]";
-        private readonly string logPath; // Necessário para logar treinamento
+        private readonly string logPath;
         private readonly TextProcessorService _textProcessorService;
-        private readonly BinaryTreeSwapFile.BinaryTreeFileStorage _memoryStorage;
+        private readonly BinaryTreeFileStorage _memoryStorage;
         private readonly DatasetService _datasetService;
-        private readonly int _knowledgeSummaryLength = 200;
+
+        // --- PARÂMETROS PARA AJUSTE DA TAXA DE APRENDIZADO ---
+        private readonly List<double> _lossHistory = new List<double>();
+        private readonly int _lrDecisionWindow = 5; // Janela decisiva: 5 épocas para observar
+        private int _epochsWithoutImprovement = 0;
+        private readonly double _lrReductionFactor = 0.5; // Reduz a LR pela metade
+        private readonly double _minLearningRate = 1e-6; // Limite mínimo para a LR
+        private double _bestLoss = double.MaxValue;
 
         public Trainer(string datasetPath,
             string modelPathTemplate,
             string vocabPath,
             int hiddenSize,
             int sequenceLength,
-            double learningRate,
+            double initialLearningRate,
             int epochs,
             TextProcessorService textProcessorService,
             BinaryTreeFileStorage memoryStorage,
@@ -41,129 +49,59 @@ namespace Core
         {
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
-            if (string.IsNullOrEmpty(datasetPath))
-                throw new ArgumentNullException(nameof(datasetPath));
-            if (string.IsNullOrEmpty(modelPathTemplate))
-                throw new ArgumentNullException(nameof(modelPathTemplate));
-            if (string.IsNullOrEmpty(vocabPath))
-                throw new ArgumentNullException(nameof(vocabPath));
-            if (sequenceLength <= 0)
-                throw new ArgumentException("ContextWindowSize deve ser positivo.", nameof(sequenceLength));
-            if (learningRate <= 0)
-                throw new ArgumentException("LearningRate deve ser positivo.", nameof(learningRate));
-            if (epochs <= 0)
-                throw new ArgumentException("Epochs deve ser positivo.", nameof(epochs));
+            if (string.IsNullOrEmpty(datasetPath)) throw new ArgumentNullException(nameof(datasetPath));
+            if (string.IsNullOrEmpty(modelPathTemplate)) throw new ArgumentNullException(nameof(modelPathTemplate));
+            // ... (outras validações)
 
             this.datasetPath = datasetPath;
             this.modelPathTemplate = modelPathTemplate;
             this._vocabPath = vocabPath;
             this.hiddenSize = hiddenSize;
             this.contextWindowSize = sequenceLength;
-            this.learningRate = learningRate;
+            this.learningRate = initialLearningRate; // Atribui ao campo
             this.epochs = epochs;
             _datasetService = datasetService;
-            this.logPath = Path.Combine(Path.GetDirectoryName(datasetPath) ?? "", "training_log.txt"); // Inicializa logPath
-
-            tokenToIndex = new Dictionary<string, int>();
-            indexToToken = new List<string>();
-            _textProcessorService = textProcessorService ?? throw new ArgumentNullException(nameof(textProcessorService));
-            _memoryStorage = memoryStorage ?? throw new ArgumentNullException(nameof(memoryStorage));
+            this.logPath = Path.Combine(Path.GetDirectoryName(datasetPath) ?? "", "training_log.txt");
+            _textProcessorService = textProcessorService;
+            _memoryStorage = memoryStorage;
         }
 
-        public void Train(int startEpoch = 1, int chunkSize = 1000) // Reintroduzindo chunkSize
+        public void Train(int startEpoch = 1, int batchSize = 32)
         {
             try
             {
-                if (!File.Exists(datasetPath))
-                {
-                    throw new FileNotFoundException($"Arquivo do dataset não encontrado: {datasetPath}");
-                }
+                SetupVocabularyAndModel();
+                if (model == null) throw new InvalidOperationException("Falha ao inicializar o modelo.");
 
-                if (startEpoch <= 0)
-                {
-                    throw new ArgumentException("startEpoch deve ser positivo.", nameof(startEpoch));
-                }
-                if (chunkSize <= 0) // Validação para chunkSize
-                {
-                    throw new ArgumentException("chunkSize deve ser positivo.", nameof(chunkSize));
-                }
+                // --- FASE DE PRÉ-PROCESSAMENTO COM STREAMING E MONITORAMENTO DE CHUNKS ---
+                Console.WriteLine("Iniciando pré-processamento do dataset via streaming...");
+                _memoryStorage.Clear();
 
-                ValidateFileEncoding();
+                // 1. CALCULA O TOTAL DE CHUNKS PARA O MONITORAMENTO
+                Console.WriteLine("Analisando o tamanho do dataset para monitorar o progresso...");
+                long totalLines = File.ReadLines(datasetPath).LongCount();
+                const int linesPerSuperChunk = 10000;
+                // Evita divisão por zero se o arquivo estiver vazio
+                int totalChunks = (totalLines > 0) ? (int)Math.Ceiling((double)totalLines / linesPerSuperChunk) : 0;
+                Console.WriteLine(
+                    $"Dataset contém {totalLines} linhas, que serão processadas em {totalChunks} blocos.");
 
-                if (File.Exists(_vocabPath))
-                {
-                    Console.WriteLine($"Tentando carregar vocabulário existente de: {_vocabPath}");
-                    LoadVocabulary(_vocabPath);
-                    if (tokenToIndex.Count <= 1)
-                    {
-                        Console.WriteLine("Vocabulário vazio ou inválido. Construindo vocabulário do dataset.");
-                        BuildVocabularyFromDataset();
-                    }
-                }
-                else
-                {
-                    Console.WriteLine("Nenhum vocabulário encontrado. Construindo vocabulário do dataset.");
-                    BuildVocabularyFromDataset();
-                }
+                var allSampleOffsets = new List<long>();
+                int superChunkCount = 0;
 
-                if (tokenToIndex.Count <= 1)
+                if (totalChunks > 0)
                 {
-                    throw new InvalidOperationException("Nenhum token válido encontrado no dataset para construir o vocabulário (além do token de padding).");
-                }
-
-                string modelToLoadPath = modelPathTemplate; // Padrão se não for retomar
-                if (startEpoch > 1)
-                {
-                    // A ideia era carregar o modelo da época ANTERIOR, para continuar.
-                    // modelPathTemplate é "model.json", então não tem {epoch}
-                    // Apenas model.json será carregado. Ou, se for por época, o trainer deve nomear assim.
-                    // Vamos simplificar e carregar sempre de 'model.json' se existir.
-                    modelToLoadPath = modelPathTemplate; // Sempre o mesmo arquivo se o modelo não nomeia por época
-                }
-                
-                if (File.Exists(modelToLoadPath))
-                {
-                    Console.WriteLine($"Tentando carregar modelo de: {modelToLoadPath}...");
-                    model = NeuralNetwork.LoadModel(modelToLoadPath);
-                    if (model == null)
-                    {
-                        Console.WriteLine($"Falha ao carregar modelo previo. Inicializando novo modelo.");
-                        model = new NeuralNetwork(tokenToIndex.Count * contextWindowSize, hiddenSize, tokenToIndex.Count, contextWindowSize); // CORRIGIDO: 4 argumentos
-                    }
-                    else if (model.InputSize != tokenToIndex.Count * contextWindowSize || model.OutputSize != tokenToIndex.Count)
-                    {
-                        Console.WriteLine($"Tamanho do vocabulário ({tokenToIndex.Count}) ou ContextWindowSize ({contextWindowSize}) não corresponde ao modelo carregado (Input: {model.InputSize}, Output: {model.OutputSize}). Inicializando novo modelo.");
-                        model = new NeuralNetwork(tokenToIndex.Count * contextWindowSize, hiddenSize, tokenToIndex.Count, contextWindowSize); // CORRIGIDO: 4 argumentos
-                    }
-                    else
-                    {
-                         Console.WriteLine($"Modelo Previo carregado com sucesso.");
-                    }
-                }
-                else
-                {
-                    Console.WriteLine("Nenhum modelo anterior encontrado ou iniciando do zero. Inicializando novo modelo.");
-                    model = new NeuralNetwork(tokenToIndex.Count * contextWindowSize, hiddenSize, tokenToIndex.Count, contextWindowSize); // CORRIGIDO: 4 argumentos
-                }
-
-                if (model == null)
-                {
-                     throw new InvalidOperationException("Falha ao inicializar o modelo de rede neural.");
-                }
-
-                for (int epoch = startEpoch; epoch <= epochs; epoch++)
-                {
-                    Console.WriteLine($"Iniciando época {epoch}/{epochs}");
-                    double totalLoss = 0;
-                    int chunkCount = 0;
-
-                    using (var reader = new StreamReader(datasetPath, Encoding.UTF8, true))
+                    using (var reader = new StreamReader(datasetPath, Encoding.UTF8))
                     {
                         bool endOfFile = false;
                         while (!endOfFile)
                         {
-                            var lines = new List<string>(chunkSize);
-                            for (int i = 0; i < chunkSize; i++)
+                            superChunkCount++;
+                            Console.WriteLine(
+                                $"\nLendo e processando o bloco de texto nº {superChunkCount}/{totalChunks}...");
+
+                            var lines = new List<string>(linesPerSuperChunk);
+                            for (int i = 0; i < linesPerSuperChunk; i++)
                             {
                                 string? line = reader.ReadLine();
                                 if (line == null)
@@ -171,41 +109,82 @@ namespace Core
                                     endOfFile = true;
                                     break;
                                 }
-                                if (!string.IsNullOrEmpty(line))
-                                {
-                                    lines.Add(line);
-                                }
+
+                                lines.Add(line);
                             }
 
                             if (lines.Count > 0)
                             {
-                                chunkCount++;
-                                string chunkText = string.Join("\n", lines);
-                                ProcessChunk(chunkText, ref totalLoss, chunkCount, epoch); // CORRIGIDO: Passa 'epoch'
-                                if (chunkCount % 10 == 0)
-                                {
-                                    GC.Collect(GC.MaxGeneration, GCCollectionMode.Optimized, blocking: false, compacting: false);
-                                }
+                                string textBlock = string.Join("\n", lines);
+                                var offsetsForBlock = _datasetService.PreprocessAndStoreSamples(
+                                    textBlock, contextWindowSize, tokenToIndex, padToken, _memoryStorage);
+                                allSampleOffsets.AddRange(offsetsForBlock);
+
+                                // 2. EMITE A MENSAGEM DE PROGRESSO APÓS CADA CHUNK SALVO
+                                double percentage = (double)superChunkCount / totalChunks * 100;
+                                Console.ForegroundColor = ConsoleColor.Green;
+                                Console.WriteLine(
+                                    $"[Progresso] Bloco {superChunkCount} de {totalChunks} armazenado com sucesso ({percentage:F1}% concluído).");
+                                Console.ResetColor();
                             }
                         }
                     }
-
-                    if (chunkCount == 0)
-                    {
-                        Console.WriteLine("Nenhum chunk válido encontrado no dataset para esta época. Verifique o arquivo de entrada.");
-                        continue; 
-                    }
-
-                    double averageLoss = totalLoss / chunkCount;
-                    var logMessage = $"Época {epoch}/{epochs} concluída. Perda média: {averageLoss:F4}, Total de chunks processados: {chunkCount}, Tamanho do vocabulário: {tokenToIndex.Count}";
-                    Console.WriteLine(logMessage);
-                    File.AppendAllText(logPath, logMessage + "\n");
-                    model.SaveModel(modelPathTemplate); // Salva no arquivo padrão 'model.json'
                 }
 
-                // A versão final já está salva no loop da época
-                // string finalModelPath = modelPathTemplate.Replace("{epoch}", epochs.ToString());
-                // try { model.SaveModel(finalModelPath); } catch (Exception ex) { Console.WriteLine($"Aviso: Falha ao salvar o modelo final ({finalModelPath}): {ex.Message}"); }
+                Console.WriteLine(
+                    $"\nPré-processamento via streaming concluído. Total de {allSampleOffsets.Count} amostras armazenadas.");
+
+                if (allSampleOffsets.Count == 0)
+                {
+                    throw new InvalidOperationException(
+                        "Nenhuma amostra de treinamento pôde ser gerada a partir do dataset.");
+                }
+
+                // --- FASE DE TREINAMENTO (O resto do método permanece o mesmo) ---
+                for (int epoch = startEpoch; epoch <= epochs; epoch++)
+                {
+                    Console.WriteLine($"\nIniciando época {epoch}/{epochs} com Taxa de Aprendizado: {learningRate:F6}");
+                    double epochTotalLoss = 0;
+                    long totalSamplesInEpoch = 0;
+
+                    var random = new Random();
+                    var shuffledOffsets = allSampleOffsets.OrderBy(x => random.Next()).ToList();
+
+                    int totalBatches = (int)Math.Ceiling((double)shuffledOffsets.Count / batchSize);
+                    for (int i = 0; i < shuffledOffsets.Count; i += batchSize)
+                    {
+                        var offsetBatch = shuffledOffsets.Skip(i).Take(batchSize).ToList();
+                        var miniBatch = new List<(Tensor input, Tensor target)>(offsetBatch.Count);
+
+                        foreach (long offset in offsetBatch)
+                        {
+                            miniBatch.Add(_datasetService.GetSampleFromStorage(offset, _memoryStorage));
+                        }
+
+                        if (miniBatch.Count > 0)
+                        {
+                            double batchLoss = model.TrainEpoch(miniBatch, learningRate, epoch);
+                            epochTotalLoss += batchLoss * miniBatch.Count;
+                            totalSamplesInEpoch += miniBatch.Count;
+                        }
+
+                        Console.Write(
+                            $"\rÉpoca {epoch}/{epochs}, Batch {(i / batchSize) + 1}/{totalBatches} processado...");
+                    }
+
+                    Console.WriteLine();
+                    if (totalSamplesInEpoch == 0) continue;
+
+                    double averageLoss = epochTotalLoss / totalSamplesInEpoch;
+                    _lossHistory.Add(averageLoss);
+
+                    var logMessage = $"Época {epoch}/{epochs} concluída. Perda média: {averageLoss:F4}";
+                    Console.WriteLine(logMessage);
+                    File.AppendAllText(logPath, logMessage + Environment.NewLine);
+
+                    AdjustLearningRate(averageLoss);
+                    model.SaveModel(modelPathTemplate);
+                }
 
                 Console.WriteLine("Treinamento concluído.");
             }
@@ -215,32 +194,107 @@ namespace Core
                 throw;
             }
         }
-        
-        private void ValidateFileEncoding()
+
+        private void SetupVocabularyAndModel()
         {
-            try
+            if (File.Exists(_vocabPath))
             {
-                using (var reader = new StreamReader(datasetPath, Encoding.UTF8, true))
+                Console.WriteLine($"Tentando carregar vocabulário existente de: {_vocabPath}");
+                LoadVocabulary(_vocabPath);
+            }
+            else
+            {
+                Console.WriteLine("Nenhum vocabulário encontrado. Construindo vocabulário do dataset.");
+                BuildVocabularyFromDataset();
+            }
+
+            if (tokenToIndex.Count <= 1)
+            {
+                throw new InvalidOperationException("Nenhum token válido encontrado para construir o vocabulário.");
+            }
+
+            if (File.Exists(modelPathTemplate))
+            {
+                Console.WriteLine($"Tentando carregar modelo de: {modelPathTemplate}...");
+                model = NeuralNetwork.LoadModel(modelPathTemplate);
+            }
+
+            if (model == null || model.InputSize != tokenToIndex.Count * contextWindowSize ||
+                model.OutputSize != tokenToIndex.Count)
+            {
+                if (model != null)
                 {
-                    char[] buffer = new char[4096];
-                    int charsRead;
-                    while ((charsRead = reader.Read(buffer, 0, buffer.Length)) > 0)
+                    Console.WriteLine($"Modelo existente é incompatível com o vocabulário atual. Criando novo modelo.");
+                }
+                else
+                {
+                    Console.WriteLine(
+                        "Nenhum modelo anterior encontrado ou iniciando do zero. Inicializando novo modelo.");
+                }
+
+                model = new NeuralNetwork(tokenToIndex.Count * contextWindowSize, hiddenSize, tokenToIndex.Count,
+                    contextWindowSize, learningRate);
+            }
+            else
+            {
+                Console.WriteLine($"Modelo Previo carregado com sucesso.");
+            }
+        }
+
+        private void AdjustLearningRate(double currentLoss)
+        {
+            double min_delta = 0.0001; // Considera melhora apenas se for maior que isso
+            if (currentLoss < _bestLoss - min_delta)
+            {
+                _bestLoss = currentLoss;
+                _epochsWithoutImprovement = 0;
+                Console.WriteLine($"Nova melhor perda encontrada: {_bestLoss:F4}. Contador de paciência zerado.");
+            }
+            else
+            {
+                _epochsWithoutImprovement++;
+                Console.WriteLine(
+                    $"Nenhuma melhoria significativa na perda. Épocas sem melhoria: {_epochsWithoutImprovement}/{_lrDecisionWindow}");
+            }
+
+            if (_epochsWithoutImprovement >= _lrDecisionWindow)
+            {
+                if (learningRate > _minLearningRate)
+                {
+                    double oldLr = learningRate;
+                    learningRate *= _lrReductionFactor;
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine(
+                        $"Platô de treinamento detectado! Reduzindo a taxa de aprendizado de {oldLr:F6} para {learningRate:F6}.");
+                    Console.ResetColor();
+                    _epochsWithoutImprovement = 0; // Reseta o contador para dar tempo ao modelo de se ajustar
+                }
+                else
+                {
+                    Console.WriteLine("Platô detectado, mas a taxa de aprendizado já está no seu valor mínimo.");
+                }
+            }
+        }
+
+        private void LoadVocabulary(string vocabPath)
+        {
+            tokenToIndex = new Dictionary<string, int>();
+            indexToToken = new List<string>();
+            using (var reader = new StreamReader(vocabPath, Encoding.UTF8))
+            {
+                string? line;
+                while ((line = reader.ReadLine()) != null)
+                {
+                    string token = line.Trim();
+                    if (!string.IsNullOrEmpty(token) && !tokenToIndex.ContainsKey(token))
                     {
-                        for (int i = 0; i < charsRead; i++)
-                        {
-                            if (buffer[i] == '\uFFFD')
-                            {
-                                throw new InvalidOperationException("O arquivo contém caracteres inválidos (substituição \\uFFFD). Verifique a codificação do arquivo.");
-                            }
-                        }
+                        tokenToIndex[token] = indexToToken.Count;
+                        indexToToken.Add(token);
                     }
                 }
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Erro ao validar a codificação do arquivo: {ex.Message}");
-                throw;
-            }
+
+            Console.WriteLine($"Vocabulário carregado de: {vocabPath}, Tamanho: {tokenToIndex.Count} tokens.");
         }
 
         private void BuildVocabularyFromDataset()
@@ -250,45 +304,23 @@ namespace Core
             tokenToIndex[padToken] = indexToToken.Count;
             indexToToken.Add(padToken);
 
-            var specialChars = new[] {
-                '!', '"', '#', '$', '%', '&', '\'', '(', ')', '*',
-                '+', ',', '-', '.', '/', ':', ';', '<', '=', '>',
-                '?', '@', '[', '\\', ']', '^', '_', '`', '{', '|',
-                '}', '~'
+            var specialChars = new[]
+            {
+                '!', '"', '#', '$', '%', '&', '\'', '(', ')', '*', '+', ',', '-', '.', '/', ':', ';', '<', '=', '>',
+                '?', '@', '[', '\\', ']', '^', '_', '`', '{', '|', '}', '~'
             };
-            var specialCharPattern = string.Join("|",
-                specialChars.Select(c => Regex.Escape(c.ToString()))
-            );
+            var specialCharPattern = string.Join("|", specialChars.Select(c => Regex.Escape(c.ToString())));
             var pattern = $@"(\p{{L}}+|\p{{N}}+|{specialCharPattern})";
 
-            HashSet<string> uniqueTokens = new HashSet<string>();
-
-            using (var reader = new StreamReader(datasetPath, Encoding.UTF8, true))
+            var uniqueTokens = new HashSet<string>();
+            string fullText = File.ReadAllText(datasetPath, Encoding.UTF8);
+            var matches = Regex.Matches(fullText.ToLower(), pattern);
+            foreach (Match match in matches)
             {
-                int lineNumber = 0;
-                while (!reader.EndOfStream)
-                {
-                    lineNumber++;
-                    string? line = reader.ReadLine();
-                    if (string.IsNullOrEmpty(line)) continue;
-
-                    string normalizedLine = line.ToLower();
-                    var matches = Regex.Matches(normalizedLine, pattern);
-                    foreach (Match match in matches)
-                    {
-                        string token = match.Value;
-                        if (char.IsControl(token[0]) && token[0] != ' ' || token == "\uFFFD" || (int)token[0] > 0x10FFFF)
-                        {
-                            Console.WriteLine($"Token inválido '{token}' ignorado na linha {lineNumber} durante a construção do vocabulário.");
-                            continue;
-                        }
-                        uniqueTokens.Add(token);
-                    }
-                }
+                uniqueTokens.Add(match.Value);
             }
 
-            var sortedTokens = uniqueTokens.OrderBy(t => t).ToList();
-            foreach (string token in sortedTokens)
+            foreach (string token in uniqueTokens.OrderBy(t => t))
             {
                 if (!tokenToIndex.ContainsKey(token))
                 {
@@ -297,193 +329,15 @@ namespace Core
                 }
             }
 
-            if (tokenToIndex.Count <= 1)
-            {
-                throw new InvalidOperationException("Nenhum token válido (além do token de padding) encontrado no dataset para construir o vocabulário.");
-            }
-
             Console.WriteLine($"Vocabulário inicial construído. Tamanho: {tokenToIndex.Count} tokens.");
             SaveVocabulary(_vocabPath);
-        }
-
-        public bool LoadModelAndVocabulary(string modelPath, string vocabPath)
-        {
-            try
-            {
-                LoadVocabulary(vocabPath);
-                if (tokenToIndex.Count <= 1)
-                {
-                    Console.WriteLine($"Falha ao carregar o vocabulário de: {vocabPath}. Vocabulário vazio ou com apenas o token [PAD].");
-                    return false;
-                }
-
-                model = NeuralNetwork.LoadModel(modelPath);
-                if (model == null)
-                {
-                    Console.WriteLine($"Falha ao carregar o modelo de: {modelPath}.");
-                    return false;
-                }
-
-                if (model.InputSize != tokenToIndex.Count * contextWindowSize || model.OutputSize != tokenToIndex.Count)
-                {
-                    Console.WriteLine($"Modelo carregado de {modelPath} não corresponde ao tamanho do vocabulário ({tokenToIndex.Count}) OU ContextWindowSize ({contextWindowSize}). " +
-                                      $"Modelo: Input {model.InputSize}, Output {model.OutputSize}. Vocabulário x Janela: {tokenToIndex.Count * contextWindowSize}.");
-                    model = null;
-                    return false;
-                }
-
-                Console.WriteLine($"Modelo e vocabulário carregados com sucesso de: {modelPath}, {vocabPath}");
-                return true;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Erro ao carregar modelo ou vocabulário: {ex.Message}");
-                model = null;
-                tokenToIndex.Clear();
-                indexToToken.Clear();
-                tokenToIndex[padToken] = indexToToken.Count;
-                indexToToken.Add(padToken);
-                return false;
-            }
-        }
-
-        private void LoadVocabulary(string vocabPath)
-        {
-            tokenToIndex.Clear();
-            indexToToken.Clear();
-            tokenToIndex[padToken] = indexToToken.Count;
-            indexToToken.Add(padToken);
-
-            try
-            {
-                using (var reader = new StreamReader(vocabPath, Encoding.UTF8, true))
-                {
-                    int lineNumber = 0;
-                    while (!reader.EndOfStream)
-                    {
-                        lineNumber++;
-                        string line = reader.ReadLine()!.Trim();
-                        if (string.IsNullOrEmpty(line)) continue;
-
-                        string token = line;
-                        if (token == padToken && tokenToIndex.ContainsKey(padToken)) continue;
-
-                        if (char.IsControl(token[0]) && token[0] != ' ' || token == "\uFFFD" || (int)token[0] > 0x10FFFF)
-                        {
-                            Console.WriteLine($"Token inválido '{token}' ignorado no vocabulário na linha {lineNumber} durante o carregamento.");
-                            continue;
-                        }
-
-                        if (!tokenToIndex.ContainsKey(token))
-                        {
-                            tokenToIndex[token] = indexToToken.Count;
-                            indexToToken.Add(token);
-                        }
-                    }
-                }
-
-                if (indexToToken.Count <= 1 && tokenToIndex.ContainsKey(padToken))
-                {
-                    throw new InvalidOperationException("Nenhum token válido encontrado no arquivo de vocabulário (além do token de padding, se presente).");
-                }
-                else if (indexToToken.Count == 0)
-                {
-                    throw new InvalidOperationException("Nenhum token encontrado no arquivo de vocabulário.");
-                }
-
-                Console.WriteLine($"Vocabulário carregado de: {vocabPath}, Tamanho: {tokenToIndex.Count} tokens.");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Erro ao carregar vocabulário: {ex.Message}");
-                tokenToIndex = new Dictionary<string, int>();
-                indexToToken = new List<string>();
-                tokenToIndex[padToken] = indexToToken.Count;
-                indexToToken.Add(padToken);
-                return;
-            }
-        }
-
-        private void ProcessChunk(string chunkText, ref double totalLoss, int chunkIndex, int epoch)
-        {
-            if (string.IsNullOrEmpty(chunkText))
-            {
-                Console.WriteLine($"Chunk {chunkIndex} ignorado: chunk vazio.");
-                return;
-            }
-            
-            var dataset = _datasetService.PrepareDataset(chunkText, contextWindowSize, tokenToIndex, padToken);
-            if (dataset.Count == 0)
-            {
-                Console.WriteLine($"Chunk {chunkIndex} processado, mas não gerou dados de treinamento válidos (sequências insuficientes ou tokens ausentes no vocabulário).");
-                return;
-            }
-
-            if (model == null)
-            {
-                throw new InvalidOperationException($"Modelo não inicializado para o chunk {chunkIndex}. Isso não deveria acontecer após o setup inicial.");
-            }
-
-            if (model.InputSize != tokenToIndex.Count * contextWindowSize || model.OutputSize != tokenToIndex.Count)
-            {
-                Console.WriteLine($"Erro: Modelo não corresponde ao tamanho do vocabulário fixo ({tokenToIndex.Count}) ou ContextWindowSize ({contextWindowSize}). " +
-                                  $"Modelo: InputSize={model.InputSize}, Expected InputSize={tokenToIndex.Count * contextWindowSize}, OutputSize={model.OutputSize}.");
-                throw new InvalidOperationException("Incompatibilidade entre o modelo e o vocabulário fixo/ContextWindowSize durante o treinamento.");
-            }
-
-            double chunkLoss = model.TrainEpoch(dataset, learningRate);
-            totalLoss += chunkLoss;
-
-            // --- NOVO: Armazenar conhecimento do chunk na memória virtual ---
-            if (epoch == 1) // Exemplo: Armazenar a cada 10 chunks na primeira época
-            {
-                Console.WriteLine($"Armazenando resumo do chunk {chunkIndex} na memória virtual...");
-                string chunkTopic = _textProcessorService.ExtractMainTopic(chunkText);
-                string chunkSummary = _textProcessorService.Summarize(chunkText, _knowledgeSummaryLength);
-
-                ContextInfo chunkKnowledge = new ContextInfo
-                {
-                    ContextId = _textProcessorService.GenerateContextHash(chunkTopic),
-                    Topic = chunkTopic,
-                    Summary = chunkSummary,
-                    Urls = new List<string> { datasetPath }, // Fonte é o dataset
-                    ExternalLastUpdatedTicks = DateTime.UtcNow.Ticks
-                };
-
-                byte[] serializedData = Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(chunkKnowledge));
-                if (serializedData.Length > TreeNode.MaxDataSize)
-                {
-                    Console.WriteLine($"Aviso: Conhecimento do chunk muito grande ({serializedData.Length} bytes). Truncando para {TreeNode.MaxDataSize} bytes.");
-                    Array.Resize(ref serializedData, TreeNode.MaxDataSize);
-                }
-                
-                try
-                {
-                     _memoryStorage.Insert(Encoding.UTF8.GetString(serializedData));
-                     Console.WriteLine($"Conhecimento do chunk armazenado/atualizado na memória virtual.");
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Erro ao armazenar conhecimento do chunk: {ex.Message}");
-                }
-            }
-
-            string logMessage = $"Época {epoch}/{epochs}, Chunk {chunkIndex} processado, Perda: {chunkLoss:F4}";
-            Console.WriteLine(logMessage);
-            File.AppendAllText(logPath, logMessage + "\n");
         }
 
         private void SaveVocabulary(string vocabPath)
         {
             try
             {
-                using (var writer = new StreamWriter(vocabPath, false, new UTF8Encoding(false)))
-                {
-                    foreach (string token in indexToToken)
-                    {
-                        writer.WriteLine(token);
-                    }
-                }
+                File.WriteAllLines(vocabPath, indexToToken, new UTF8Encoding(false));
                 Console.WriteLine($"Vocabulário salvo em: {vocabPath}, Tamanho: {tokenToIndex.Count} tokens.");
             }
             catch (Exception ex)

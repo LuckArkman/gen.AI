@@ -151,30 +151,56 @@ public class ListenerService
             _memoryStorage.Insert(Encoding.UTF8.GetString(serializedData));
         }
 
-        var loss = InternalizeKnowledgeIntoModel(newSummary);
-        Console.WriteLine($"Perda na internalização de conhecimento: {loss:F4}");
+        InternalizeKnowledgeIntoModel(newSummary);
         _memoryStorage.CleanUnusedNodes(TimeSpan.FromDays(30));
     }
 
-    double InternalizeKnowledgeIntoModel(string knowledgeText)
-    {
-        if (model == null || tokenToIndex.Count == 0)
+    private void InternalizeKnowledgeIntoModel(string knowledgeText)
         {
-            Console.WriteLine("Modelo ou vocabulário não inicializados para internalizar conhecimento.");
-            return 0;
-        }
+            if (model == null || tokenToIndex == null || _datasetService == null || modelPath == null || padToken == null)
+            {
+                 _logger.LogWarning("ListenerService não está pronto para internalizar conhecimento.");
+                 return;
+            }
+            
+            const int internalizeBatchSize = 32; // Define um tamanho de batch para a internalização
 
-        var dataset = _datasetService.PrepareDataset(knowledgeText, contextWindowSize, tokenToIndex, padToken);
-        if (dataset.Count == 0)
-        {
-            Console.WriteLine("Dados de conhecimento insuficientes para internalização.");
-            return 0;
-        }
+            // CORREÇÃO: Processa o novo texto e o divide em batches gerenciáveis.
+            var batchesToLearn = _datasetService.PrepareBatchesFromText(
+                knowledgeText, 
+                contextWindowSize, 
+                tokenToIndex, 
+                padToken, 
+                internalizeBatchSize);
+            
+            if (batchesToLearn.Count == 0)
+            {
+                _logger.LogWarning("Dados de conhecimento insuficientes para internalização após o batching.");
+                return;
+            }
 
-        Console.WriteLine($"Internalizando {dataset.Count} sequências de conhecimento no modelo...");
-        double loss = model.TrainEpoch(dataset, KnowledgeInternalizationLearningRate);
-        Console.WriteLine($"Perda na internalização de conhecimento: {loss:F4}");
-        model.SaveModel(modelPath);
-        return loss;
-    }
+            const double knowledgeInternalizationLearningRate = 0.001;
+            _logger.LogInformation($"Internalizando novo conhecimento em {batchesToLearn.Count} batches...");
+            
+            double totalLoss = 0;
+            long totalSamples = 0;
+
+            // Faz um loop sobre os batches recém-criados e treina o modelo em cada um.
+            foreach (var batch in batchesToLearn)
+            {
+                if (batch.Count > 0)
+                {
+                    double batchLoss = model.TrainEpoch(batch, knowledgeInternalizationLearningRate);
+                    totalLoss += batchLoss * batch.Count;
+                    totalSamples += batch.Count;
+                }
+            }
+
+            if (totalSamples > 0)
+            {
+                double averageLoss = totalLoss / totalSamples;
+                _logger.LogInformation($"Internalização concluída. Perda média: {averageLoss:F4}");
+                model.SaveModel(modelPath);
+            }
+        }
 }
