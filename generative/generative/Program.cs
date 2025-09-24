@@ -23,8 +23,8 @@ public class Program
                     services.AddSingleton<BinaryTreeFileStorage>(provider =>
                     {
                         var config = provider.GetRequiredService<IConfiguration>();
-                        var modelDir = config["ModelSettings:ModelDirectory"] ?? "/home/mplopes/Documentos/generative/generative/";
-                        var memoryFilePath = config["ModelSettings:MemoryFilePath"] ?? Path.Combine(modelDir, "AIModelMem.dat");
+                        var modelDir =  Path.Combine(Environment.CurrentDirectory, "");
+                        var memoryFilePath = Path.Combine(Environment.CurrentDirectory, "AIModelMem.dat");
                         return new BinaryTreeFileStorage(memoryFilePath);
                     });
                 })
@@ -92,12 +92,12 @@ public class Program
         {
             Console.WriteLine($"Iniciando modo de treinamento (época inicial: {startEpoch}, total de épocas: {totalEpochs}, janela de contexto: {contextWindowSize}, tamanho do chunk: {chunkSize})...");
 
-            string datasetPath = configuration["TrainingSettings:DatasetPath"] ?? "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/output/code.txt";
-            string modelDir = configuration["ModelSettings:ModelDirectory"] ?? "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/";
-            string modelPathTemplate = Path.Combine(modelDir, "model.json"); 
-            string vocabPath = Path.Combine(modelDir, "vocab.txt");
-            int hiddenSize = configuration.GetValue<int>("ModelSettings:HiddenSize", 256);
-            double learningRate = configuration.GetValue<double>("ModelSettings:LearningRate", 0.001);
+            string datasetPath = Path.Combine(Environment.CurrentDirectory, "output", "code.txt");
+            string modelDir = Path.Combine(Environment.CurrentDirectory, "");
+            string modelPathTemplate = Path.Combine(Environment.CurrentDirectory, "model.json"); 
+            string vocabPath = Path.Combine(Environment.CurrentDirectory, "vocab.txt");
+            int hiddenSize = 512;
+            double learningRate = 0.001;
             
             if (!Directory.Exists(modelDir))
             {

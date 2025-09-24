@@ -1,4 +1,3 @@
-using OpenCL.Net;
 using System;
 using System.IO;
 using System.Linq;
@@ -7,6 +6,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Collections.Generic;
 using System.Text;
+using OpenCL.NetCore;
+using Environment = System.Environment;
 
 namespace Core
 {
@@ -24,7 +25,7 @@ namespace Core
         private Context? _context;
         private Device? _device;
         private CommandQueue? _queue;
-        private OpenCL.Net.Program? _program;
+        private OpenCL.NetCore.Program? _program;
         private Kernel? _matmulKernel;
         private Kernel? _sigmoidKernel;
         private Kernel? _tanhKernel;
@@ -199,8 +200,7 @@ namespace Core
                 string kernelPath = Path.Combine(AppContext.BaseDirectory, "Kernels", "MatrixOperations.cl");
                 if (!File.Exists(kernelPath))
                 {
-                    kernelPath =
-                        "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/Kernels/MatrixOperations.cl";
+                    kernelPath = Path.Combine(Environment.CurrentDirectory, "Kernels", "MatrixOperations.cl");
                     if (!File.Exists(kernelPath))
                         throw new FileNotFoundException($"Arquivo de kernel OpenCL não encontrado: {kernelPath}");
                 }

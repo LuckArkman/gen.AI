@@ -11,7 +11,7 @@
         <PackageReference Include="HtmlAgilityPack" Version="1.12.2" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.16" />
         <PackageReference Include="Newtonsoft.Json" Version="13.0.4-beta1" />
-        <PackageReference Include="OpenCL.Net" Version="2.2.9" />
+        <PackageReference Include="OpenCL.NetCore" Version="1.2.0" />
         <PackageReference Include="OpenTK" Version="4.9.4" />
         <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
         <PackageReference Include="System.Linq.Async" Version="6.0.3" />

@@ -48,8 +48,7 @@ namespace GenerativeAIAPI.Controllers
             ILogger<ListenerService> logger,
             DatasetService datasetService) // ListenerService injetado
         {
-            modelDir = configuration["ModelSettings:ModelDirectory"] ??
-                       "/home/mplopes/Documentos/GitHub/gen.AI/generative/generative/"; // CORRIGIDO: Inicializa modelDir primeiro
+            modelDir = Path.Combine(Environment.CurrentDirectory, ""); // CORRIGIDO: Inicializa modelDir primeiro
 
             _contextManager = contextManager;
             _textProcessorService = textProcessorService;
@@ -58,7 +57,7 @@ namespace GenerativeAIAPI.Controllers
             _logger = logger;
             _datasetService = datasetService;
 
-            _memoryFilePath = configuration["ModelSettings:MemoryFilePath"] ?? Path.Combine(modelDir, "AIModelMem.dat");
+            _memoryFilePath = Path.Combine(Environment.CurrentDirectory, "AIModelMem.dat");
             _memoryStorage = new BinaryTreeSwapFile.BinaryTreeFileStorage(_memoryFilePath);
             if (!System.IO.File.Exists(_memoryFilePath) ||
                 new FileInfo(_memoryFilePath).Length < sizeof(long) + TreeNode.NodeSize)

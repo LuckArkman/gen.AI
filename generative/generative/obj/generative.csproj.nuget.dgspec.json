@@ -33,11 +33,6 @@
           "warnAsError": [
             "NU1605"
           ]
-        },
-        "restoreAuditProperties": {
-          "enableAudit": "true",
-          "auditLevel": "low",
-          "auditMode": "direct"
         }
       },
       "frameworks": {
@@ -56,9 +51,9 @@
               "target": "Package",
               "version": "[13.0.4-beta1, )"
             },
-            "OpenCL.Net": {
+            "OpenCL.NetCore": {
               "target": "Package",
-              "version": "[2.2.9, )"
+              "version": "[1.2.0, )"
             },
             "OpenTK": {
               "target": "Package",
