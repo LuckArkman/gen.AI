@@ -1,0 +1,163 @@
+using System;
+using System.Buffers;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using BinaryTreeSwapFile;
+using Core;
+using Models;
+
+namespace Services
+{
+    public class DatasetService
+    {
+        private static readonly ArrayPool<double> _arrayPool = ArrayPool<double>.Shared;
+
+        // Gera todos os batches, os armazena na memória virtual e retorna seus offsets
+        public List<long> PreprocessAndStoreBatches(
+            string text, 
+            int contextWindowSize, 
+            Dictionary<string, int> tokenToIndex, 
+            string padToken, 
+            BinaryTreeFileStorage memoryStorage,
+            int batchSize)
+        {
+            Console.WriteLine("Iniciando pré-processamento de todo o dataset...");
+
+            var allSamples = GenerateAllSamples(text, contextWindowSize, tokenToIndex, padToken);
+
+            Console.WriteLine($"Total de {allSamples.Count} amostras geradas. Agrupando em batches de {batchSize}...");
+            var batchOffsets = new List<long>();
+
+            for (int i = 0; i < allSamples.Count; i += batchSize)
+            {
+                var currentBatch = allSamples.Skip(i).Take(batchSize).ToList();
+                if (currentBatch.Count == 0) continue;
+
+                var batchData = new TensorBatchData();
+                foreach (var (input, target) in currentBatch)
+                {
+                    batchData.Batch.Add(new TensorPairData
+                    {
+                        Input = new TensorData { data = input.GetData(), shape = input.GetShape() },
+                        Target = new TensorData { data = target.GetData(), shape = target.GetShape() }
+                    });
+                }
+
+                string serializedBatch = JsonSerializer.Serialize(batchData);
+                long offset = memoryStorage.Insert(serializedBatch);
+                batchOffsets.Add(offset);
+            }
+
+            Console.WriteLine($"Pré-processamento concluído. {batchOffsets.Count} batches armazenados na memória virtual.");
+            return batchOffsets;
+        }
+
+        // Recupera um batch específico da memória virtual usando seu offset
+        public List<(Tensor input, Tensor target)> GetBatchFromStorage(long offset, BinaryTreeFileStorage memoryStorage)
+        {
+            string serializedBatch = memoryStorage.GetData(offset);
+            if (string.IsNullOrEmpty(serializedBatch))
+            {
+                return new List<(Tensor, Tensor)>();
+            }
+
+            var batchData = JsonSerializer.Deserialize<TensorBatchData>(serializedBatch);
+            
+            var dataset = new List<(Tensor, Tensor)>();
+            if (batchData != null)
+            {
+                foreach (var pairData in batchData.Batch)
+                {
+                    dataset.Add((new Tensor(pairData.Input.data, pairData.Input.shape),
+                                 new Tensor(pairData.Target.data, pairData.Target.shape)));
+                }
+            }
+            return dataset;
+        }
+        
+        // Método auxiliar que gera todas as amostras em memória.
+        private List<(Tensor input, Tensor target)> GenerateAllSamples(string text, int contextWindowSize, Dictionary<string, int> tokenToIndex, string padToken)
+        {
+            var paddedTokens = TokenizeAndPad(text, contextWindowSize, padToken);
+            var concurrentDataset = new ConcurrentBag<(Tensor input, Tensor target)>();
+            int totalWindows = paddedTokens.Count - contextWindowSize;
+
+            Parallel.For(0, totalWindows, i =>
+            {
+                var sample = CreateSample(paddedTokens, i, contextWindowSize, tokenToIndex, padToken);
+                if (sample.HasValue)
+                {
+                    concurrentDataset.Add(sample.Value);
+                }
+            });
+
+            return concurrentDataset.ToList();
+        }
+
+        private List<string> TokenizeAndPad(string text, int contextWindowSize, string padToken)
+        {
+            var specialChars = new[] { '.', ',', '!', '?', ':', ';', '"', '\'', '-', '(', ')' };
+            var specialCharPattern = string.Join("|", specialChars.Select(c => Regex.Escape(c.ToString())));
+            var pattern = $@"(\p{{L}}+|\p{{N}}+|{specialCharPattern})";
+            var tokens = Regex.Matches(text.ToLower(), pattern).Select(m => m.Value).Where(t => !string.IsNullOrEmpty(t)).ToArray();
+            
+            var paddedTokens = new List<string>(tokens.Length + contextWindowSize);
+            for (int k = 0; k < contextWindowSize; k++) { paddedTokens.Add(padToken); }
+            paddedTokens.AddRange(tokens);
+            return paddedTokens;
+        }
+
+        private (Tensor input, Tensor target)? CreateSample(List<string> paddedTokens, int index, int contextWindowSize, Dictionary<string, int> tokenToIndex, string padToken)
+        {
+            string nextToken = paddedTokens[index + contextWindowSize];
+            if (!tokenToIndex.ContainsKey(nextToken)) return null;
+
+            int inputSize = tokenToIndex.Count * contextWindowSize;
+            double[] inputData = _arrayPool.Rent(inputSize);
+            
+            try
+            {
+                Array.Clear(inputData, 0, inputSize);
+                for (int k = 0; k < contextWindowSize; k++)
+                {
+                    string token = paddedTokens[index + k];
+                    if (!tokenToIndex.TryGetValue(token, out int tokenVocabIndex))
+                    {
+                        return null;
+                    }
+                    inputData[k * tokenToIndex.Count + tokenVocabIndex] = 1.0;
+                }
+                
+                int targetSize = tokenToIndex.Count;
+                double[] targetData = _arrayPool.Rent(targetSize);
+                try
+                {
+                    Array.Clear(targetData, 0, targetSize);
+                    targetData[tokenToIndex[nextToken]] = 1.0;
+                    
+                    var finalInputData = new double[inputSize];
+                    Array.Copy(inputData, finalInputData, inputSize);
+                    
+                    var finalTargetData = new double[targetSize];
+                    Array.Copy(targetData, finalTargetData, targetSize);
+
+                    var inputTensor = new Tensor(finalInputData, new int[] { inputSize });
+                    var targetTensor = new Tensor(finalTargetData, new int[] { targetSize });
+
+                    return (inputTensor, targetTensor);
+                }
+                finally
+                {
+                    _arrayPool.Return(targetData);
+                }
+            }
+            finally
+            {
+                _arrayPool.Return(inputData);
+            }
+        }
+    }
+}

@@ -7,19 +7,17 @@ namespace Services
 {
     public class KnowledgeAcquisitionService
     {
-        private readonly ChatGPTService _chatGPTService;
         private readonly GoogleSearchService _googleSearchService;
         private readonly GeminiService _geminiService;
         private readonly TextProcessorService _textProcessorService;
         private readonly ILogger<KnowledgeAcquisitionService> _logger; // Para logs
 
-        public KnowledgeAcquisitionService(ChatGPTService chatGPTService, 
+        public KnowledgeAcquisitionService( 
             GoogleSearchService googleSearchService,
             GeminiService geminiService,
             TextProcessorService textProcessorService,
             ILogger<KnowledgeAcquisitionService> logger) // Injetar logger
         {
-            _chatGPTService = chatGPTService;
             _googleSearchService = googleSearchService;
             _geminiService = geminiService;
             _textProcessorService = textProcessorService;
@@ -27,7 +25,7 @@ namespace Services
         }
 
         /// <summary>
-        /// Busca informações sobre um tópico, priorizando ChatGPT e usando Google como fallback.
+        /// Busca informações sobre um tópico, priorizando Internet e usando Google como fallback.
         /// Retorna uma lista de strings com informações relevantes e o nome da fonte.
         /// </summary>
         /// <param name="query">O tópico da busca.</param>
@@ -37,44 +35,36 @@ namespace Services
             List<string> content = new List<string>();
             string sourceName = "Nenhuma";
 
-            // 1. Tentar ChatGPT (fonte primária)
-            Console.WriteLine($"KnowledgeAcquisition: Tentando fonte primária (ChatGPT) para '{query}'...");
+            // 1. Tentar Internet (fonte primária)
+            Console.WriteLine($"KnowledgeAcquisition: Tentando fonte primária (Interget) para '{query}'...");
             content = await _geminiService.GetInformationFromGemini(query);
             if (content.Any() && !string.IsNullOrWhiteSpace(string.Join("", content)))
             {
-                sourceName = "ChatGPT API";
-                Console.WriteLine("KnowledgeAcquisition: Informação obtida do ChatGPT.");
+                sourceName = "Internet API";
+                Console.WriteLine("KnowledgeAcquisition: Informação obtida da Internet.");
                 return (content, sourceName);
             }
 
-            Console.WriteLine("KnowledgeAcquisition: ChatGPT não retornou informações relevantes. Tentando fonte secundária (Google).");
-
-            // 2. Tentar Google Search (fonte secundária)
-            // Se o conteúdo do Google for bruto (snippets e texto de páginas),
-            // podemos passá-lo para o ChatGPT para um resumo mais inteligente,
-            // ou apenas resumir localmente se a chave do ChatGPT for limitada/indisponível.
+            Console.WriteLine("KnowledgeAcquisition: Internet não retornou informações relevantes. Tentando Reflexao Profunda.");
             
             List<string> googleContent = await _googleSearchService.SearchAndExtractText(query);
             if (googleContent.Any() && !string.IsNullOrWhiteSpace(string.Join("", googleContent)))
             {
-                // Opcional: Passar o conteúdo do Google pelo ChatGPT para um resumo inteligente
-                // Se a intenção é que o ChatGPT sempre processe a info para resumo.
-                // Isso incorre em custo adicional do ChatGPT.
-                Console.WriteLine("KnowledgeAcquisition: Informação bruta obtida do Google. Opcionalmente, processando com ChatGPT para síntese.");
+                Console.WriteLine("KnowledgeAcquisition: Informação bruta obtida da Internet. Opcionalmente, processando para síntese.");
                 var synthesizedContent = await _geminiService.GetInformationFromGemini($"Summarize and synthesize the following search results about '{query}':\n\n{string.Join("\n\n", googleContent)}", 1000);
 
                 if (synthesizedContent.Any() && !string.IsNullOrWhiteSpace(string.Join("", synthesizedContent)))
                 {
                     content = synthesizedContent;
-                    sourceName = "Google Search (via ChatGPT Synthesis)";
-                    Console.WriteLine("KnowledgeAcquisition: Informação do Google sintetizada pelo ChatGPT.");
+                    sourceName = "Google Search (via Internet Synthesis)";
+                    Console.WriteLine("KnowledgeAcquisition: Informação da Internet sintetizada.");
                 }
                 else
                 {
-                    // Fallback se ChatGPT falhar na síntese
+                    // Fallback se Internet falhar na síntese
                     content = googleContent;
                     sourceName = "Google Search (raw)";
-                    Console.WriteLine("KnowledgeAcquisition: Informação do Google usada diretamente.");
+                    Console.WriteLine("KnowledgeAcquisition: Informação da Internet usada diretamente.");
                 }
                 return (content, sourceName);
             }

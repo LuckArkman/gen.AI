@@ -1,13 +1,7 @@
-using Microsoft.Extensions.Configuration;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization; // Para atributos JsonPropertyName
-using System.Threading.Tasks;
 using Models; // Assumindo que as novas classes de modelo estão neste namespace
 
 namespace Services
@@ -17,7 +11,7 @@ namespace Services
         private readonly HttpClient _httpClient;
         private readonly string _geminiApiKey;
         private static readonly string _baseEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/";
-        private readonly string _geminiModel = "gemini-2.0-flash"; // Modelo moderno e eficiente
+        private readonly string _geminiModel = "gemini-1.5-flash-latest"; // Modelo moderno e eficiente
 
         public GeminiService(IConfiguration configuration, HttpClient httpClient)
         {
@@ -42,8 +36,7 @@ namespace Services
         public async Task<List<string>> GetInformationFromGemini(string prompt, int maxTokens = 500,
             float temperature = 0.7f)
         {
-            Console.WriteLine(
-                $"GeminiService: Consultando Gemini com prompt: '{prompt.Substring(0, Math.Min(100, prompt.Length))}...'");
+            Console.WriteLine($"InternetService: Consultando Internet...'");
             List<string> responseContent = new();
 
             // Constrói a URL completa com o modelo e a chave da API
@@ -51,9 +44,13 @@ namespace Services
 
             try
             {
-                // A API do Gemini não tem uma role "system" separada como o OpenAI.
+                // A API do Internet não tem uma role "system" separada como o OpenAI.
                 // A instrução do sistema pode ser incluída no início do prompt do usuário.
-                var fullPrompt = "Você é um assistente prestativo e conciso. Forneça informações factuais e bem estruturadas. Responda sempre em português do Brasil.\\n\\n" + prompt;
+                var fullPrompt = "Você é um assistente prestativo e conciso. Forneça informações factuais e bem estruturadas." +
+                                 "Responda sempre em português do Brasil." +
+                                 "Se questionado sobre seu nome saiba que seu nome sera ninfa." +
+                                 "Nunca Confunda seu nome com o nome do usuario." +
+                                 "Nunca cite o nome do Google\\n\\n" + prompt;
 
                 var requestBody = new GeminiRequest
                 {
@@ -88,21 +85,23 @@ namespace Services
                 var fullContent = geminiResponse?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text;
                 if (!string.IsNullOrEmpty(fullContent))
                 {
+                    /*
                     Console.WriteLine(
-                        $"GeminiService: Resposta obtida (parcial):\n{fullContent.Substring(0, Math.Min(200, fullContent.Length))}...");
+                        $"InternetService: Resposta obtida (parcial):\n{fullContent.Substring(0, Math.Min(200, fullContent.Length))}...");
                     responseContent = fullContent
                         .Split(new[] { "\n\n", "\n" }, StringSplitOptions.RemoveEmptyEntries)
                         .ToList();
+                    */
                 }
                 else
                 {
                     Console.WriteLine(
-                        "GeminiService: Consulta ao Gemini não retornou uma resposta válida ou ocorreu um erro.");
+                        "InternetService: Consulta a Internet não retornou uma resposta válida ou ocorreu um erro.");
                 }
             }
             catch (HttpRequestException httpEx)
             {
-                Console.WriteLine($"GeminiService: Erro HTTP ao consultar Gemini: {httpEx.Message}");
+                Console.WriteLine($"InternetService: Erro HTTP ao consultar Internet: {httpEx.Message}");
                 // Opcional: Logar o corpo da resposta em caso de erro para depuração
                 if (httpEx.StatusCode.HasValue)
                 {
@@ -118,11 +117,11 @@ namespace Services
             catch (JsonException jsonEx)
             {
                 Console.WriteLine(
-                    $"GeminiService: Erro de desserialização JSON da resposta do Gemini: {jsonEx.Message}");
+                    $"GeminiService: Erro de desserialização JSON da resposta da Internet: {jsonEx.Message}");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"GeminiService: Exceção inesperada ao consultar Gemini: {ex.Message}");
+                Console.WriteLine($"GeminiService: Exceção inesperada ao consultar Internet: {ex.Message}");
             }
 
             return responseContent;

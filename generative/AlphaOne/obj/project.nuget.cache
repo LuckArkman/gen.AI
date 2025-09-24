@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "L3I4fiBuWgo=",
+  "dgSpecHash": "vhY40yJSDToNswZVSuQ9FXfngYKhQnmdcCf8DtV357h1oLXu+XvQJ1oHxl4DKIO2AL3f2m8bHSH/AhlGEzHobg==",
   "success": true,
-  "projectFilePath": "/home/mplopes/Documentos/generative/AlphaOne/AlphaOne.csproj",
+  "projectFilePath": "/home/mplopes/Documentos/GitHub/gen.AI/generative/AlphaOne/AlphaOne.csproj",
   "expectedPackageFiles": [
     "/home/mplopes/.nuget/packages/dnsclient/1.6.1/dnsclient.1.6.1.nupkg.sha512",
     "/home/mplopes/.nuget/packages/humanizer.core/2.14.1/humanizer.core.2.14.1.nupkg.sha512",

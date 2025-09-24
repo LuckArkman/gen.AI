@@ -1,0 +1,71 @@
+        public void Train(int startEpoch = 1, int batchSize = 32)
+        {
+            try
+            {
+                // ... (seu código de inicialização: carregar vocabulário, carregar/criar modelo) ...
+
+                // --- FASE DE PRÉ-PROCESSAMENTO ---
+                Console.WriteLine("Lendo todo o dataset para pré-processamento...");
+                string fullDatasetText = File.ReadAllText(datasetPath, Encoding.UTF8);
+                
+                var batchOffsets = _datasetService.PreprocessAndStoreBatches(
+                    fullDatasetText, 
+                    contextWindowSize, 
+                    tokenToIndex, 
+                    padToken, 
+                    _memoryStorage, 
+                    batchSize);
+                
+                if (batchOffsets.Count == 0)
+                {
+                    Console.WriteLine("Nenhum batch de treinamento pôde ser gerado. Verifique o dataset e o vocabulário.");
+                    return;
+                }
+
+                // --- FASE DE TREINAMENTO ---
+                for (int epoch = startEpoch; epoch <= epochs; epoch++)
+                {
+                    Console.WriteLine($"Iniciando época {epoch}/{epochs}");
+                    double totalLoss = 0;
+                    int batchesProcessed = 0;
+
+                    // Opcional: Embaralhar os batches a cada época
+                    var random = new Random();
+                    var shuffledOffsets = batchOffsets.OrderBy(x => random.Next()).ToList();
+                    
+                    foreach (long offset in shuffledOffsets)
+                    {
+                        // Recupera um mini-batch da memória virtual
+                        var miniBatch = _datasetService.GetBatchFromStorage(offset, _memoryStorage);
+
+                        if (miniBatch.Count > 0 && model != null)
+                        {
+                            // Treina o modelo com este mini-batch
+                            double batchLoss = model.TrainEpoch(miniBatch, learningRate, epoch);
+                            totalLoss += batchLoss * miniBatch.Count; // Pondera a perda pelo tamanho do batch
+                            batchesProcessed++;
+                        }
+                    }
+
+                    if (batchesProcessed == 0)
+                    {
+                        Console.WriteLine("Nenhum batch válido processado nesta época.");
+                        continue;
+                    }
+
+                    double averageLoss = totalLoss / (batchesProcessed * batchSize); // Calcula a perda média por amostra
+                    var logMessage = $"Época {epoch}/{epochs} concluída. Perda média: {averageLoss:F4}, Total de batches: {batchesProcessed}";
+                    Console.WriteLine(logMessage);
+                    File.AppendAllText(logPath, logMessage + Environment.NewLine);
+
+                    model.SaveModel(modelPathTemplate);
+                }
+
+                Console.WriteLine("Treinamento concluído.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Erro crítico durante o treinamento: {ex.Message}");
+                throw;
+            }
+        }

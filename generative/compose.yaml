@@ -1,0 +1,13 @@
+﻿services:
+  generative:
+    image: generative
+    build:
+      context: .
+      dockerfile: generative/Dockerfile
+
+  alphaone:
+    image: alphaone
+    build:
+      context: .
+      dockerfile: AlphaOne/Dockerfile
+

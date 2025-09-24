@@ -80,7 +80,7 @@ public class HomeController : Controller
             );
 
             // Chama a API GenerativeAI externa
-            var apiResponse = await httpClient.PostAsync($"{_apiBaseUrl}/generate", jsonContent);
+            var apiResponse = await httpClient.PostAsync($"{_apiBaseUrl}api/generate", jsonContent);
             apiResponse.EnsureSuccessStatusCode(); // Lança exceção para códigos de erro HTTP
             aiResponse = await apiResponse.Content.ReadAsStringAsync();
 
